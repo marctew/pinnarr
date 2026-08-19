@@ -418,6 +418,8 @@ async def bulk_undo() -> JSONResponse:
 # ── Calendar (SPEC §13) ──────────────────────────
 
 AGENDA_DAYS = 14
+#: How far past the agenda to look for a "next up" fallback.
+LOOKAHEAD_DAYS = 120
 #: How far back "aired, not arrived" looks. Beyond this it stops being news
 #: and starts being an audit of the back catalogue.
 OVERDUE_DAYS = 30
@@ -443,7 +445,9 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
 
     agenda_end = today + timedelta(days=AGENDA_DAYS)
     window_start = min(grid_start, today - timedelta(days=OVERDUE_DAYS))
-    window_end = max(grid_end, agenda_end) + timedelta(days=1)
+    # Always reach past the agenda, so an empty fortnight can still say what
+    # is actually coming instead of just "nothing".
+    window_end = max(grid_end, agenda_end, today + timedelta(days=LOOKAHEAD_DAYS)) + timedelta(days=1)
 
     with session() as conn:
         rows = pinned_episodes(conn, window_start.isoformat(), window_end.isoformat())
@@ -460,14 +464,23 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
     episodes = [decorate(r, now=now, tz=str(tz)) for r in rows]
 
     agenda: dict[date, list[dict[str, Any]]] = defaultdict(list)
+    by_month: dict[date, list[dict[str, Any]]] = defaultdict(list)
     marks: dict[date, int] = defaultdict(int)
+    names: dict[date, list[str]] = defaultdict(list)
+    upcoming: list[dict[str, Any]] = []
+
     for ep in episodes:
         if ep["air_local"] is None:
             continue
         day = ep["air_local"].date()
         marks[day] += 1
+        names[day].append(f"{ep['series_title']} {ep['code']}")
         if today <= day < agenda_end:
             agenda[day].append(ep)
+        elif day >= agenda_end:
+            upcoming.append(ep)
+        if day.year == anchor.year and day.month == anchor.month:
+            by_month[day].append(ep)
 
     weeks: list[list[dict[str, Any]]] = []
     cursor = grid_start
@@ -480,6 +493,7 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
                     "in_month": cursor.month == anchor.month,
                     "is_today": cursor == today,
                     "count": marks.get(cursor, 0),
+                    "names": names.get(cursor, []),
                 }
             )
             cursor += timedelta(days=1)
@@ -494,6 +508,11 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
         "dormant": dormant,
         "pinned_total": pinned_total,
         "weeks": weeks,
+        # What the dots on the grid actually are — without this the month view
+        # tells you something is happening and refuses to say what.
+        "month_episodes": sorted(by_month.items()),
+        "next_up": upcoming[:5],
+        "showing_this_month": anchor.year == today.year and anchor.month == today.month,
         "month_label": anchor.strftime("%B %Y"),
         "prev_month": (anchor - timedelta(days=1)).strftime("%Y-%m"),
         "next_month": (last + timedelta(days=1)).strftime("%Y-%m"),

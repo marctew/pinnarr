@@ -160,3 +160,34 @@ def test_the_json_feed_honours_an_explicit_window(client):
     assert client.get("/api/calendar").json()["episodes"] == []
     wide = client.get("/api/calendar?start=2026-01-01&end=2027-01-01").json()
     assert len(wide["episodes"]) == 1
+
+
+def test_an_empty_fortnight_still_says_what_is_coming(client):
+    """The dots-with-no-information case: something is clearly scheduled, and
+    the agenda window just misses it."""
+    with session() as conn:
+        seed(conn, air_offset_days=40)
+    body = client.get("/").text
+    assert "Nothing from your pinned shows in the next fortnight" in body
+    assert "Next up" in body
+    assert "Severance" in body
+
+
+def test_the_month_view_lists_what_its_dots_are(client):
+    with session() as conn:
+        seed(conn, air_offset_days=40)
+    ahead = (datetime.now(UTC) + timedelta(days=40)).strftime("%Y-%m")
+    body = client.get(f"/?month={ahead}").text
+    assert "S02E07" in body
+
+
+def test_a_month_with_nothing_in_it_says_so(client):
+    with session() as conn:
+        seed(conn, air_offset_days=2)
+    assert "Nothing from your pinned shows in January 2027" in client.get("/?month=2027-01").text
+
+
+def test_day_cells_carry_the_show_names(client):
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    assert "Severance S02E07" in client.get("/").text

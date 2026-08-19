@@ -36,6 +36,12 @@
   </ul>
 {% else %}
   <p class="empty">Nothing from your pinned shows in the next fortnight.</p>
+  {% if next_up %}
+    <h2 class="section">Next up</h2>
+    <ul class="agenda">
+      {% for ep in next_up %}{{ episode_row(ep) }}{% endfor %}
+    </ul>
+  {% endif %}
 {% endif %}
 
 {% if overdue %}
@@ -56,7 +62,8 @@
     {% for week in weeks %}
       <tr>
         {% for cell in week %}
-          <td class="{{ 'dim' if not cell.in_month }} {{ 'today' if cell.is_today }}">
+          <td class="{{ 'dim' if not cell.in_month }} {{ 'today' if cell.is_today }}"
+              {% if cell.names %}title="{{ cell.names|join('&#10;') }}"{% endif %}>
             <span class="num">{{ cell.date.day }}</span>
             {% if cell.count %}<span class="dots">{{ '●' * [cell.count, 4]|min }}</span>{% endif %}
           </td>
@@ -65,6 +72,23 @@
     {% endfor %}
   </tbody>
 </table>
+
+{% if month_episodes %}
+  <ul class="agenda month-list">
+    {% for day, eps in month_episodes %}
+      {% for ep in eps %}
+        <li class="ep state-{{ ep.state }}">
+          <span class="when">{% if loop.first %}{{ day.strftime('%a') }} {{ day.day }}{% endif %}</span>
+          <a class="show" href="/library?q={{ ep.series_title|urlencode }}">{{ ep.series_title }}</a>
+          <span class="code">{{ ep.code }}</span>
+          <span class="state">{{ ep.mark }} {{ ep.label }}</span>
+        </li>
+      {% endfor %}
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">Nothing from your pinned shows in {{ month_label }}.</p>
+{% endif %}
 
 {% if announced %}
   <h2 class="section">Announced, no dates yet</h2>
