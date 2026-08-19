@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Your account · Pinnarr{% endblock %}
+{% block content %}
+<h1>Your account</h1>
+<p class="lede">Signed in as <strong>{{ current_user(request)['username'] }}</strong>
+  ({{ current_user(request)['role'] }}).</p>
+
+{% if flash %}<p class="flash {{ flash_kind }}">{{ flash }}</p>{% endif %}
+
+<form method="post" action="/profile">
+  <fieldset>
+    <legend>Notifications</legend>
+    <label>Your ntfy topic
+      <input type="text" name="ntfy_topic" value="{{ current_user(request)['ntfy_topic'] or '' }}">
+      <p class="hint">Pushes for <em>your</em> pinned shows go here. The server
+        and any token are set by an admin; only the topic is yours. Leave it
+        blank to receive nothing.</p>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Password</legend>
+    <label>New password
+      <input type="password" name="password" autocomplete="new-password" minlength="8">
+      <p class="hint">At least 8 characters. Leave blank to keep the one you have.
+        Changing it signs you out everywhere, including here.</p>
+    </label>
+  </fieldset>
+
+  <div class="bar"><button type="submit" class="primary">Save</button></div>
+</form>
+{% endblock %}

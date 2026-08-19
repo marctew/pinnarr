@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app import auth
 from app.config import get_settings, save_settings
 from app.main import app
 
@@ -17,8 +18,10 @@ TOKEN = "plex-token-do-not-leak"
 
 
 @pytest.fixture
-def client(db):
+def client(db, admin_token):
+    token, _ = admin_token
     with TestClient(app) as c:
+        c.cookies.set(auth.COOKIE, token)
         yield c
 
 

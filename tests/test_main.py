@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app import auth
 from app.jobs import REGISTRY, build_scheduler
 from app.main import app
 
@@ -25,8 +26,10 @@ EXPECTED_JOBS = {
 
 
 @pytest.fixture
-def client(db):
+def client(db, admin_token):
+    token, _ = admin_token
     with TestClient(app) as c:
+        c.cookies.set(auth.COOKIE, token)
         yield c
 
 

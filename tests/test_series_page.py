@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from app import auth
 from app.db import session, utcnow
 from app.main import app
 
@@ -33,6 +34,10 @@ def seed(conn, **kw):
         "has_file, in_plex, monitored, updated_at) VALUES (?, 2, 7, 'Cold Harbor', ?, 1, 1, 1, ?)",
         (sid, (datetime.now(UTC) + timedelta(days=3)).isoformat(), now),
     )
+    if fields.get("pinned"):
+        conn.execute(
+            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (1, ?, ?)", (sid, now)
+        )
     conn.execute("INSERT INTO genres (name) VALUES ('Sci-Fi')")
     gid = conn.execute("SELECT id FROM genres WHERE name = 'Sci-Fi'").fetchone()["id"]
     conn.execute("INSERT INTO series_genres (series_id, genre_id) VALUES (?, ?)", (sid, gid))
@@ -40,8 +45,10 @@ def seed(conn, **kw):
 
 
 @pytest.fixture
-def client(db):
+def client(db, admin_token):
+    token, _ = admin_token
     with TestClient(app) as c:
+        c.cookies.set(auth.COOKIE, token)
         yield c
 
 

@@ -54,3 +54,27 @@ def unmigrated_db(monkeypatch, tmp_path):
     finally:
         get_bootstrap.cache_clear()
         get_settings.cache_clear()
+
+
+@pytest.fixture
+def account(db):
+    """An admin account plus a live session token.
+
+    Returns a factory, so a test that cares about roles can make a standard
+    user as well and check one cannot reach the other's pins.
+    """
+    from app import auth
+    from app.db import session
+
+    def make(username: str = "admin", role: str = "admin") -> tuple[str, int]:
+        with session() as conn:
+            user_id = auth.create_user(conn, username, "password123", role)
+            token = auth.start_session(conn, user_id)
+        return token, user_id
+
+    return make
+
+
+@pytest.fixture
+def admin_token(account):
+    return account()

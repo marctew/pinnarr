@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app import auth
 from app.db import session, utcnow
 from app.main import app
 from app.repo import (
@@ -146,8 +147,10 @@ def test_matching_ids_ignores_paging(db):
 
 
 @pytest.fixture
-def client(library):
+def client(library, admin_token):
+    token, _ = admin_token
     with TestClient(app) as c:
+        c.cookies.set(auth.COOKIE, token)
         yield c
 
 

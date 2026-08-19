@@ -1,11 +1,13 @@
 # Pinnarr — Design Spec
 
-**v0.3 — 19 August 2026**
+**v0.4 — 19 August 2026**
 *Self-hosted release calendar for the shows you actually care about.*
 
 *Changes since v0.1: added season outlook (§10), faceted library filtering and bulk pin (§11), TMDB as a data source, resolved open question 4.*
 
 *Changes since v0.2: configuration moved from environment variables to a database-backed admin panel (§15), with connection tests that resolve open questions 2 and 3 at runtime.*
+
+*Changes since v0.3: multi-user (§19). Pins, calendars and notifications are per account; configuration stays shared and admin-only.*
 
 ---
 
@@ -43,7 +45,7 @@ Pinnarr's entire reason to exist is the subset. Two consequences fall out of tha
 
 - Movies. Theatrical dates are noise; the useful date is the GB *digital* release, which Radarr tracks as `digitalRelease`. Deferred to v1.5 as an off-by-default second tab.
 - Auto-pinning from watch history. Discussed and rejected in favour of manual control.
-- Multi-user. Single pin list, single ntfy topic.
+- ~~Multi-user~~ — **added in v0.4**, see §19.
 - iCal feed. Cheap to add later (~30 lines) if you decide you'd rather live in your calendar app.
 - Sonarr tags as a filter facet. Deferred pending whether you actually tag series in Sonarr.
 
@@ -488,6 +490,34 @@ services:
 8. **Timezones.** Always render from `air_date_utc`. Sonarr's `airDate` field is network-local and will put US shows on the wrong UK day.
 
 *Resolved since v0.1: shows in Plex but not in Sonarr — TMDB is now a first-class source, so these get status and outlook. They still won't get per-episode air dates, since TMDB's episode data is thinner than TVDB's; if that turns out to matter, TVmaze's `/shows/{id}/episodes` is the top-up.*
+
+## 19. Multi-user
+
+**Shared configuration, separate lists.** One Plex, one Sonarr, one TMDB key —
+those describe the household's media stack, not a person. Pins, calendars and
+notifications are personal. Two roles: `admin` may reach `/settings` and manage
+accounts; `user` may not.
+
+**`pins` is the source of truth, `series.pinned` is derived.** The flag stays on
+the series row, but its meaning narrows to "pinned by at least one user", and it
+is refreshed on every pin change. The sync jobs ask exactly that question — the
+calendar fetch and the availability check should cover anything anyone follows —
+so none of them needed changing. Only the user-facing queries join `pins`.
+
+**Notifications fan out.** Each user sets their own ntfy topic; the server URL
+and token stay admin-owned. An arrival pushes once per user who pinned the show
+and has a topic. Dedupe moved from `episodes.notified_at` to a
+`(user_id, episode_id)` table, because one person's push must not suppress
+another's for the same episode.
+
+**Auth.** Password login over a signed session cookie, scrypt for storage, no
+self-registration. The first visit to an instance with no accounts offers a
+one-time setup form that creates an admin — and adopts any pins made before
+accounts existed, so upgrading doesn't silently empty the list.
+
+**Still not solved:** there is no HTTPS and no rate limiting on the login form.
+On a LAN that is a considered trade; exposed to the internet it is not. Put a
+reverse proxy in front.
 
 ## 18. Beyond v1
 

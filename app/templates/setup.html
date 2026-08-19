@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}First run · Pinnarr{% endblock %}
+{% block content %}
+<div class="gate">
+  <h1>Create the admin account</h1>
+  <p class="lede">Nobody has an account yet. This first one is an admin: it can
+    configure the integrations and create everyone else. Any shows already
+    pinned become yours.</p>
+  {% if error %}<p class="flash bad">{{ error }}</p>{% endif %}
+  <form method="post" action="/setup">
+    <label>Username
+      <input type="text" name="username" autocomplete="username" autofocus required>
+    </label>
+    <label>Password
+      <input type="password" name="password" autocomplete="new-password" required minlength="8">
+      <p class="hint">At least 8 characters.</p>
+    </label>
+    <button type="submit" class="primary">Create account</button>
+  </form>
+</div>
+{% endblock %}

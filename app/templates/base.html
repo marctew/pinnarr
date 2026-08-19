@@ -34,6 +34,33 @@
     color: var(--muted); text-decoration: none; font-size: 14px; margin-right: 1rem;
   }
   header nav a.active { color: var(--ink); font-weight: 600; }
+  header .who-nav { margin-left: auto; display: flex; align-items: center; gap: .9rem; }
+  header .who-nav a { color: var(--muted); text-decoration: none; font-size: 14px; }
+  header .who-nav a:hover { color: var(--ink); }
+  .linkish {
+    background: none; border: 0; padding: 0; color: var(--muted);
+    font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .linkish:hover { color: var(--ink); }
+  .gate { max-width: 340px; margin: 3rem auto; }
+  .gate label { display: block; margin-bottom: .9rem; }
+  .users { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .users th {
+    text-align: left; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); padding: .4rem .5rem; border-bottom: 1px solid var(--line);
+  }
+  .users td { padding: .45rem .5rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .users td.right { text-align: right; white-space: nowrap; }
+  .users .topic { color: var(--muted); }
+  .users .you {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--accent); margin-left: .4rem;
+  }
+  .inline { display: inline-flex; gap: .3rem; align-items: center; }
+  .inline input { width: 9rem; margin: 0; padding: .3rem .4rem; font-size: 13px; }
+  .inline select { width: auto; margin: 0; padding: .25rem .4rem; font-size: 13px; }
+  button.danger { border-color: var(--bad); color: var(--bad); }
+  button.danger:hover { background: var(--bad); color: #fff; }
   main { max-width: 780px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
   main.wide { max-width: 1400px; }
   h1 { font-size: 20px; margin: 0 0 .25rem; }
@@ -320,9 +347,17 @@
   <nav>
     <a href="/" class="{% block nav_calendar %}{% endblock %}">Calendar</a>
     <a href="/library" class="{% block nav_library %}{% endblock %}">Library</a>
-    <a href="/settings" class="{% block nav_settings %}{% endblock %}">Settings</a>
+    {% if current_user(request) and current_user(request)['role'] == 'admin' %}
+      <a href="/settings" class="{% block nav_settings %}{% endblock %}">Settings</a>
+    {% endif %}
     <a href="/healthz">Health</a>
   </nav>
+  {% if current_user(request) %}
+    <div class="who-nav">
+      <a href="/profile">{{ current_user(request)['username'] }}</a>
+      <form method="post" action="/logout"><button type="submit" class="linkish">Sign out</button></form>
+    </div>
+  {% endif %}
 </header>
 <main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
 </body>

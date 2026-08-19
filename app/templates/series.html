@@ -22,9 +22,9 @@
     </p>
 
     <p class="actions">
-      <button type="button" id="pin" class="{{ 'primary' if s['pinned'] }}"
+      <button type="button" id="pin" class="{{ 'primary' if s['is_pinned'] }}"
               onclick="togglePin({{ s['id'] }})">
-        {{ 'Pinned' if s['pinned'] else 'Pin this show' }}
+        {{ 'Pinned' if s['is_pinned'] else 'Pin this show' }}
       </button>
       {% for link in links %}
         <a class="ext" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.name }} ↗</a>

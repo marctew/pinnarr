@@ -24,6 +24,7 @@ async def send(
     tags: str = "tv",
     priority: str = "default",
     click: str | None = None,
+    topic: str | None = None,
 ) -> bool:
     """Publish one notification. Returns False on failure — never raises.
 
@@ -31,7 +32,10 @@ async def send(
     the episode is still in Plex whether or not the phone buzzed.
     """
     s = get_settings()
-    if not s.ntfy_configured:
+    # The server and any token are shared configuration; the topic is per
+    # user, so callers pass it in.
+    target = topic or s.ntfy_topic
+    if not (s.ntfy_url and target):
         log.debug("ntfy not configured, dropping notification: %s", title)
         return False
 
@@ -44,7 +48,7 @@ async def send(
     if s.ntfy_token:
         headers["Authorization"] = f"Bearer {s.ntfy_token}"
 
-    url = f"{s.ntfy_url}/{s.ntfy_topic}"
+    url = f"{s.ntfy_url}/{target}"
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             resp = await client.post(url, content=message.encode("utf-8"), headers=headers)

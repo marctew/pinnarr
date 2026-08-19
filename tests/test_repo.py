@@ -147,34 +147,36 @@ def test_episode_upsert_is_idempotent(db):
         assert conn.execute("SELECT COUNT(*) c FROM episodes").fetchone()["c"] == 1
 
 
-def test_bulk_pin_and_undo(db):
+def test_bulk_pin_and_undo(db, admin_token):
+    _, user = admin_token
     with db() as conn:
         ids = [
             upsert_from_plex(conn, plex_show(rating_key=str(i), tvdb_id=1000 + i, title=f"Show {i}"))
             for i in range(5)
         ]
-        count, batch = bulk_pin(conn, ids)
+        count, batch = bulk_pin(conn, user, ids)
         assert count == 5
         assert conn.execute("SELECT COUNT(*) c FROM series WHERE pinned = 1").fetchone()["c"] == 5
-        assert latest_bulk_batch(conn) == batch
+        assert latest_bulk_batch(conn, user) == batch
 
-        assert undo_bulk_pin(conn, batch) == 5
+        assert undo_bulk_pin(conn, user, batch) == 5
         assert conn.execute("SELECT COUNT(*) c FROM series WHERE pinned = 1").fetchone()["c"] == 0
 
 
-def test_bulk_pin_skips_already_pinned_so_undo_does_not_unpin_them(db):
+def test_bulk_pin_skips_already_pinned_so_undo_does_not_unpin_them(db, admin_token):
+    _, user = admin_token
     """Undo must only reverse what that bulk action actually did."""
     with db() as conn:
         ids = [
             upsert_from_plex(conn, plex_show(rating_key=str(i), tvdb_id=2000 + i, title=f"S{i}"))
             for i in range(3)
         ]
-        set_pinned(conn, ids[0], True)  # pinned by hand, earlier
+        set_pinned(conn, user, ids[0], True)  # pinned by hand, earlier
 
-        count, batch = bulk_pin(conn, ids)
+        count, batch = bulk_pin(conn, user, ids)
         assert count == 2
 
-        undo_bulk_pin(conn, batch)
+        undo_bulk_pin(conn, user, batch)
         still_pinned = conn.execute(
             "SELECT id FROM series WHERE pinned = 1"
         ).fetchall()

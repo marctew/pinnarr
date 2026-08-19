@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Accounts · Pinnarr{% endblock %}
+{% block nav_settings %}active{% endblock %}
+{% block content %}
+<h1>Accounts</h1>
+<p class="lede">Everyone shares the same Plex, Sonarr and TMDB configuration.
+  Pins, calendars and notifications are their own.
+  <a href="/settings">Back to settings</a>.</p>
+
+{% if flash %}<p class="flash {{ flash_kind }}">{{ flash }}</p>{% endif %}
+
+<table class="users">
+  <thead><tr><th>User</th><th>Role</th><th>ntfy topic</th><th></th></tr></thead>
+  <tbody>
+    {% for u in users %}
+      <tr>
+        <td>{{ u['username'] }}{% if u['id'] == current_user(request)['id'] %}
+          <span class="you">you</span>{% endif %}</td>
+        <td>
+          <form method="post" action="/settings/users" class="inline">
+            <input type="hidden" name="action" value="role">
+            <input type="hidden" name="user_id" value="{{ u['id'] }}">
+            <select name="role" onchange="this.form.submit()">
+              <option value="user" {{ 'selected' if u['role'] == 'user' }}>User</option>
+              <option value="admin" {{ 'selected' if u['role'] == 'admin' }}>Admin</option>
+            </select>
+          </form>
+        </td>
+        <td class="topic">{{ u['ntfy_topic'] or '—' }}</td>
+        <td class="right">
+          <form method="post" action="/settings/users" class="inline">
+            <input type="hidden" name="action" value="password">
+            <input type="hidden" name="user_id" value="{{ u['id'] }}">
+            <input type="password" name="password" placeholder="new password" minlength="8">
+            <button type="submit">Reset</button>
+          </form>
+          <form method="post" action="/settings/users" class="inline"
+                onsubmit="return confirm('Delete {{ u['username'] }}? Their pins go too.')">
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="user_id" value="{{ u['id'] }}">
+            <button type="submit" class="danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="section">Add an account</h2>
+<form method="post" action="/settings/users">
+  <input type="hidden" name="action" value="create">
+  <fieldset>
+    <div class="row">
+      <label>Username <input type="text" name="username" required></label>
+      <label>Password <input type="password" name="password" required minlength="8"></label>
+      <label>Role
+        <select name="role"><option value="user">User</option><option value="admin">Admin</option></select>
+      </label>
+    </div>
+    <p class="hint">They set their own ntfy topic and can change their password
+      once they sign in.</p>
+  </fieldset>
+  <div class="bar"><button type="submit" class="primary">Create account</button></div>
+</form>
+{% endblock %}

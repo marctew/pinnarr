@@ -332,43 +332,106 @@ def set_last_watched(conn: sqlite3.Connection, plex_rating_key: str, watched_at:
 # ── Pinning ──────────────────────────────────────
 
 
-def set_pinned(
-    conn: sqlite3.Connection, series_id: int, pinned: bool, *, batch: str | None = None
-) -> None:
+def refresh_pinned_flag(conn: sqlite3.Connection, series_id: int) -> None:
+    """Keep series.pinned in step with the pins table.
+
+    It is denormalised, and means "pinned by at least one user". The sync
+    jobs want precisely that question -- the calendar and availability
+    fetches should cover anything anyone follows -- so they read this rather
+    than joining pins, and needed no changes.
+    """
     conn.execute(
-        "UPDATE series SET pinned = ?, pinned_at = ?, pin_batch = ?, updated_at = ? WHERE id = ?",
-        (int(pinned), utcnow() if pinned else None, batch if pinned else None, utcnow(), series_id),
+        "UPDATE series SET pinned = (SELECT EXISTS (SELECT 1 FROM pins WHERE series_id = ?)), "
+        "updated_at = ? WHERE id = ?",
+        (series_id, utcnow(), series_id),
     )
 
 
-def bulk_pin(conn: sqlite3.Connection, series_ids: list[int]) -> tuple[int, str]:
+def is_pinned_by(conn: sqlite3.Connection, user_id: int, series_id: int) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM pins WHERE user_id = ? AND series_id = ?", (user_id, series_id)
+        ).fetchone()
+        is not None
+    )
+
+
+def set_pinned(
+    conn: sqlite3.Connection,
+    user_id: int,
+    series_id: int,
+    pinned: bool,
+    *,
+    batch: str | None = None,
+) -> None:
+    if pinned:
+        conn.execute(
+            "INSERT INTO pins (user_id, series_id, pinned_at, pin_batch) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(user_id, series_id) DO NOTHING",
+            (user_id, series_id, utcnow(), batch),
+        )
+    else:
+        conn.execute(
+            "DELETE FROM pins WHERE user_id = ? AND series_id = ?", (user_id, series_id)
+        )
+    refresh_pinned_flag(conn, series_id)
+
+
+def set_notify(conn: sqlite3.Connection, user_id: int, series_id: int, notify: bool) -> None:
+    """Per-series notification opt-out, per user."""
+    conn.execute(
+        "UPDATE pins SET notify = ? WHERE user_id = ? AND series_id = ?",
+        (int(notify), user_id, series_id),
+    )
+
+
+def bulk_pin(conn: sqlite3.Connection, user_id: int, series_ids: list[int]) -> tuple[int, str]:
     """Pin many series under one batch id, so the action can be undone as a unit."""
     batch = uuid.uuid4().hex[:12]
-    unpinned = [
-        sid
-        for sid in series_ids
-        if not (conn.execute("SELECT pinned FROM series WHERE id = ?", (sid,)).fetchone() or {"pinned": 0})["pinned"]
+    added = 0
+    for sid in series_ids:
+        if is_pinned_by(conn, user_id, sid):
+            continue
+        set_pinned(conn, user_id, sid, True, batch=batch)
+        added += 1
+    return added, batch
+
+
+def undo_bulk_pin(conn: sqlite3.Connection, user_id: int, batch: str) -> int:
+    affected = [
+        int(r["series_id"])
+        for r in conn.execute(
+            "SELECT series_id FROM pins WHERE user_id = ? AND pin_batch = ?", (user_id, batch)
+        )
     ]
-    for sid in unpinned:
-        set_pinned(conn, sid, True, batch=batch)
-    return len(unpinned), batch
+    conn.execute("DELETE FROM pins WHERE user_id = ? AND pin_batch = ?", (user_id, batch))
+    for sid in affected:
+        refresh_pinned_flag(conn, sid)
+    return len(affected)
 
 
-def undo_bulk_pin(conn: sqlite3.Connection, batch: str) -> int:
-    cur = conn.execute(
-        "UPDATE series SET pinned = 0, pinned_at = NULL, pin_batch = NULL, updated_at = ? "
-        "WHERE pin_batch = ?",
-        (utcnow(), batch),
-    )
-    return cur.rowcount
-
-
-def latest_bulk_batch(conn: sqlite3.Connection) -> str | None:
+def latest_bulk_batch(conn: sqlite3.Connection, user_id: int) -> str | None:
     row = conn.execute(
-        "SELECT pin_batch FROM series WHERE pin_batch IS NOT NULL "
-        "ORDER BY pinned_at DESC LIMIT 1"
+        "SELECT pin_batch FROM pins WHERE user_id = ? AND pin_batch IS NOT NULL "
+        "ORDER BY pinned_at DESC LIMIT 1",
+        (user_id,),
     ).fetchone()
     return row["pin_batch"] if row else None
+
+
+def adopt_orphaned_pins(conn: sqlite3.Connection, user_id: int) -> int:
+    """Hand pins made before there were accounts to the first admin.
+
+    Without this, upgrading silently empties the pin list and the only clue
+    is a calendar that has gone blank.
+    """
+    rows = conn.execute(
+        "SELECT id FROM series WHERE pinned = 1 "
+        "AND NOT EXISTS (SELECT 1 FROM pins WHERE pins.series_id = series.id)"
+    ).fetchall()
+    for row in rows:
+        set_pinned(conn, user_id, int(row["id"]), True)
+    return len(rows)
 
 
 # ── Library browsing (SPEC §11) ──────────────────
@@ -410,6 +473,9 @@ class LibraryFilter:
     pinned: str = "all"
     sort: str = "recent"
     page: int = 1
+    #: Whose pins "pinned"/"unpinned" refers to. Not a URL parameter -- it
+    #: comes from the session, so nobody can filter by another user's list.
+    user_id: int = 0
 
     def without(self, facet: str) -> LibraryFilter:
         """This filter with one facet cleared.
@@ -448,10 +514,13 @@ def _clauses(f: LibraryFilter) -> tuple[list[str], list[Any]]:
         )
         params += list(f.genres)
 
+    mine = "EXISTS (SELECT 1 FROM pins p WHERE p.series_id = s.id AND p.user_id = ?)"
     if f.pinned == "pinned":
-        where.append("s.pinned = 1")
+        where.append(mine)
+        params.append(f.user_id)
     elif f.pinned == "unpinned":
-        where.append("s.pinned = 0")
+        where.append("NOT " + mine)
+        params.append(f.user_id)
 
     return where, params
 
@@ -477,11 +546,14 @@ def query_series(conn: sqlite3.Connection, f: LibraryFilter) -> list[sqlite3.Row
     sql, params = _where_sql(f)
     order = SORTS.get(f.sort, SORTS["recent"])
     page = max(1, f.page)
+    # is_pinned, not pinned: s.* already carries the any-user flag, and an
+    # unaliased column would be silently shadowed by it.
     return list(
         conn.execute(
-            f"SELECT s.*, {_rank_case()} AS outlook_rank FROM series s{sql} "
-            f"ORDER BY {order} LIMIT ? OFFSET ?",
-            [*params, PAGE_SIZE, (page - 1) * PAGE_SIZE],
+            f"SELECT s.*, {_rank_case()} AS outlook_rank, "
+            "EXISTS (SELECT 1 FROM pins p WHERE p.series_id = s.id AND p.user_id = ?) AS is_pinned "
+            f"FROM series s{sql} ORDER BY {order} LIMIT ? OFFSET ?",
+            [f.user_id, *params, PAGE_SIZE, (page - 1) * PAGE_SIZE],
         )
     )
 
@@ -522,13 +594,22 @@ def facet_counts(conn: sqlite3.Connection, f: LibraryFilter) -> dict[str, list[d
     }
 
 
-def pinned_count(conn: sqlite3.Connection) -> int:
-    return int(conn.execute("SELECT count(*) AS n FROM series WHERE pinned = 1").fetchone()["n"])
+def pinned_count(conn: sqlite3.Connection, user_id: int) -> int:
+    return int(
+        conn.execute(
+            "SELECT count(*) AS n FROM pins WHERE user_id = ?", (user_id,)
+        ).fetchone()["n"]
+    )
 
 
-def get_series(conn: sqlite3.Connection, series_id: int) -> sqlite3.Row | None:
+def get_series(
+    conn: sqlite3.Connection, series_id: int, user_id: int = 0
+) -> sqlite3.Row | None:
     return conn.execute(
-        f"SELECT s.*, {_rank_case()} AS outlook_rank FROM series s WHERE s.id = ?", (series_id,)
+        f"SELECT s.*, {_rank_case()} AS outlook_rank, "
+        "EXISTS (SELECT 1 FROM pins p WHERE p.series_id = s.id AND p.user_id = ?) AS is_pinned "
+        "FROM series s WHERE s.id = ?",
+        (user_id, series_id),
     ).fetchone()
 
 
@@ -538,13 +619,14 @@ _EPISODE_SELECT = """
     -- Aliased: e.* already carries a `title` (the episode's), and an
     -- unaliased s.title is silently shadowed by it.
     SELECT e.*, s.title AS series_title, s.id AS series_id, s.outlook, s.poster_url
-    FROM episodes e JOIN series s ON s.id = e.series_id
-    WHERE s.pinned = 1
+    FROM episodes e
+    JOIN series s ON s.id = e.series_id
+    JOIN pins p ON p.series_id = s.id AND p.user_id = ?
 """
 
 
 def pinned_episodes(
-    conn: sqlite3.Connection, start: str, end: str
+    conn: sqlite3.Connection, user_id: int, start: str, end: str
 ) -> list[sqlite3.Row]:
     """Pinned episodes airing in a window, chronological.
 
@@ -555,14 +637,16 @@ def pinned_episodes(
     return list(
         conn.execute(
             _EPISODE_SELECT
-            + " AND e.air_date_utc >= ? AND e.air_date_utc < ?"
+            + " WHERE e.air_date_utc >= ? AND e.air_date_utc < ?"
             + " ORDER BY e.air_date_utc ASC, s.sort_title ASC",
-            (start, end),
+            (user_id, start, end),
         )
     )
 
 
-def overdue_episodes(conn: sqlite3.Connection, since: str, now: str) -> list[sqlite3.Row]:
+def overdue_episodes(
+    conn: sqlite3.Connection, user_id: int, since: str, now: str
+) -> list[sqlite3.Row]:
     """Aired, not in Plex, not too long ago to still care about.
 
     Bounded by `since` because an unbounded query resurfaces every gap in the
@@ -572,22 +656,24 @@ def overdue_episodes(conn: sqlite3.Connection, since: str, now: str) -> list[sql
     return list(
         conn.execute(
             _EPISODE_SELECT
-            + " AND e.air_date_utc >= ? AND e.air_date_utc < ?"
+            + " WHERE e.air_date_utc >= ? AND e.air_date_utc < ?"
             + " AND e.has_file = 0 AND e.in_plex = 0 AND e.monitored = 1"
             + " ORDER BY e.air_date_utc DESC",
-            (since, now),
+            (user_id, since, now),
         )
     )
 
 
-def pinned_by_outlook(conn: sqlite3.Connection, outlooks: tuple[str, ...]) -> list[sqlite3.Row]:
+def pinned_by_outlook(
+    conn: sqlite3.Connection, user_id: int, outlooks: tuple[str, ...]
+) -> list[sqlite3.Row]:
     """Pinned series in given outlook states, for the calendar's tail sections."""
     marks = ",".join("?" * len(outlooks))
     return list(
         conn.execute(
-            f"SELECT * FROM series WHERE pinned = 1 AND outlook IN ({marks}) "
-            "ORDER BY sort_title ASC",
-            outlooks,
+            "SELECT s.* FROM series s JOIN pins p ON p.series_id = s.id AND p.user_id = ? "
+            f"WHERE s.outlook IN ({marks}) ORDER BY s.sort_title ASC",
+            (user_id, *outlooks),
         )
     )
 

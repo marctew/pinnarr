@@ -7,6 +7,7 @@ import logging
 from calendar import monthrange
 from collections import defaultdict
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from math import ceil
 from pathlib import Path
@@ -19,7 +20,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from app import __version__, labels
+from app import __version__, auth, labels
 from app.config import (
     SCHEDULING_FIELDS,
     SECRET_FIELDS,
@@ -39,6 +40,7 @@ from app.repo import (
     PIN_STATES,
     SORTS,
     LibraryFilter,
+    adopt_orphaned_pins,
     bulk_pin,
     count_series,
     facet_counts,
@@ -127,7 +129,16 @@ app = FastAPI(
 _job_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+#: Reachable without a session. Everything else needs one.
+PUBLIC_PATHS = frozenset({"/login", "/setup", "/healthz"})
+
+
+def current_user(request: Request):
+    return getattr(request.state, "user", None)
+
+
 templates.env.globals.update(
+    current_user=current_user,
     outlook_label=labels.outlook,
     outlook_badge=labels.outlook_badge,
     status_label=labels.sonarr_status,
@@ -158,6 +169,223 @@ def restart_scheduler(app: FastAPI) -> None:
     scheduler = build_scheduler()
     scheduler.start()
     app.state.scheduler = scheduler
+
+
+@app.middleware("http")
+async def authenticate(request: Request, call_next):
+    """One gate in front of everything, rather than a decorator per route.
+
+    Missing a route is the failure mode that matters here, and an allowlist
+    fails closed: a new endpoint is private until someone says otherwise.
+    """
+    path = request.url.path
+    if path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    with session() as conn:
+        user = auth.user_for_token(conn, request.cookies.get(auth.COOKIE))
+        if user is None:
+            # Nobody has an account yet: send them to make the first admin
+            # rather than to a login form no password can satisfy.
+            first_run = auth.admin_count(conn) == 0
+
+    if user is None:
+        if first_run:
+            return RedirectResponse("/setup", status_code=303)
+        nxt = quote(request.url.path + (f"?{request.url.query}" if request.url.query else ""))
+        return RedirectResponse(f"/login?next={nxt}", status_code=303)
+
+    request.state.user = user
+    if path.startswith("/settings") and user["role"] != auth.ADMIN:
+        return templates.TemplateResponse(
+            request, "forbidden.html", {"needed": "an admin"}, status_code=403
+        )
+    return await call_next(request)
+
+
+# ── Sign in ──────────────────────────────────────
+
+
+@app.get("/setup")
+async def setup_form(request: Request, error: str = ""):
+    if auth.user_count():
+        return RedirectResponse("/login", status_code=303)
+    return templates.TemplateResponse(request, "setup.html", {"error": error})
+
+
+@app.post("/setup")
+async def setup_submit(request: Request):
+    """Create the first admin. Only ever available while there are no users."""
+    if auth.user_count():
+        return RedirectResponse("/login", status_code=303)
+
+    form = await request.form()
+    username = str(form.get("username", "")).strip()
+    password = str(form.get("password", ""))
+    if not username or len(password) < 8:
+        return RedirectResponse(
+            "/setup?error=" + quote("A username and a password of at least 8 characters."),
+            status_code=303,
+        )
+
+    with session() as conn:
+        user_id = auth.create_user(conn, username, password, auth.ADMIN)
+        adopted = adopt_orphaned_pins(conn, user_id)
+        token = auth.start_session(conn, user_id)
+    if adopted:
+        log.info("adopted %d pre-existing pins for the first admin", adopted)
+
+    response = RedirectResponse("/", status_code=303)
+    _set_cookie(response, token)
+    return response
+
+
+@app.get("/login")
+async def login_form(request: Request, error: str = "", next: str = "/"):
+    if not auth.user_count():
+        return RedirectResponse("/setup", status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"error": error, "next": next})
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    form = await request.form()
+    nxt = str(form.get("next") or "/")
+    user = auth.authenticate(str(form.get("username", "")), str(form.get("password", "")))
+    if user is None:
+        return RedirectResponse(
+            f"/login?error={quote('Wrong username or password.')}&next={quote(nxt)}",
+            status_code=303,
+        )
+
+    with session() as conn:
+        token = auth.start_session(conn, int(user["id"]))
+    # Only ever redirect within the app: an open redirect on a login form is
+    # a phishing primitive.
+    response = RedirectResponse(nxt if nxt.startswith("/") and not nxt.startswith("//") else "/",
+                                status_code=303)
+    _set_cookie(response, token)
+    return response
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    token = request.cookies.get(auth.COOKIE)
+    if token:
+        with session() as conn:
+            auth.end_session(conn, token)
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(auth.COOKIE, path="/")
+    return response
+
+
+def _set_cookie(response, token: str) -> None:
+    response.set_cookie(
+        auth.COOKIE, token, max_age=auth.SESSION_DAYS * 86400,
+        httponly=True, samesite="lax", path="/",
+    )
+
+
+# ── Your own account ─────────────────────────────
+
+
+@app.get("/profile")
+async def profile(request: Request, saved: str = "", error: str = ""):
+    return templates.TemplateResponse(
+        request, "profile.html",
+        {"flash": error or ("Saved." if saved else ""), "flash_kind": "bad" if error else "ok"},
+    )
+
+
+@app.post("/profile")
+async def profile_save(request: Request):
+    form = await request.form()
+    user = request.state.user
+    topic = str(form.get("ntfy_topic", "")).strip()
+    password = str(form.get("password", ""))
+
+    if password and len(password) < 8:
+        return RedirectResponse(
+            "/profile?error=" + quote("Password must be at least 8 characters."), status_code=303
+        )
+
+    with session() as conn:
+        auth.set_topic(conn, int(user["id"]), topic)
+        if password:
+            auth.set_password(conn, int(user["id"]), password)
+
+    if password:
+        # set_password drops every session, including this one.
+        return RedirectResponse("/login", status_code=303)
+    return RedirectResponse("/profile?saved=1", status_code=303)
+
+
+# ── Accounts (admin) ─────────────────────────────
+
+
+@app.get("/settings/users")
+async def users_page(request: Request, saved: str = "", error: str = ""):
+    with session() as conn:
+        users = auth.list_users(conn)
+    return templates.TemplateResponse(
+        request, "users.html",
+        {
+            "users": users,
+            "flash": error or ("Saved." if saved else ""),
+            "flash_kind": "bad" if error else "ok",
+        },
+    )
+
+
+@app.post("/settings/users")
+async def users_action(request: Request):
+    form = await request.form()
+    action = str(form.get("action", ""))
+    me = int(request.state.user["id"])
+
+    def back(message: str = "", ok: bool = True):
+        if not message:
+            return RedirectResponse("/settings/users?saved=1", status_code=303)
+        key = "saved" if ok else "error"
+        return RedirectResponse(f"/settings/users?{key}={quote(message)}", status_code=303)
+
+    with session() as conn:
+        if action == "create":
+            username = str(form.get("username", "")).strip()
+            password = str(form.get("password", ""))
+            if not username or len(password) < 8:
+                return back("A username and a password of at least 8 characters.", ok=False)
+            if auth.by_username(conn, username):
+                return back(f"{username} already exists.", ok=False)
+            auth.create_user(conn, username, password, str(form.get("role", auth.USER)))
+            return back()
+
+        target = int(form.get("user_id", 0) or 0)
+        if target == 0 or auth.get_user(conn, target) is None:
+            return back("No such user.", ok=False)
+
+        if action == "delete":
+            if target == me:
+                return back("You cannot delete your own account.", ok=False)
+            if auth.get_user(conn, target)["role"] == auth.ADMIN and auth.admin_count(conn) <= 1:
+                return back("That is the only admin left.", ok=False)
+            auth.delete_user(conn, target)
+        elif action == "password":
+            password = str(form.get("password", ""))
+            if len(password) < 8:
+                return back("Password must be at least 8 characters.", ok=False)
+            auth.set_password(conn, target, password)
+        elif action == "role":
+            role = str(form.get("role", auth.USER))
+            # Demoting the last admin locks everyone out of configuration.
+            if (
+                role != auth.ADMIN
+                and auth.get_user(conn, target)["role"] == auth.ADMIN
+                and auth.admin_count(conn) <= 1
+            ):
+                return back("That is the only admin left.", ok=False)
+            auth.set_role(conn, target, role)
+    return back()
 
 
 @app.get("/healthz")
@@ -241,7 +469,9 @@ async def trigger_sync(job: str) -> JSONResponse:
 @app.get("/")
 async def index(request: Request, month: str | None = None):
     """The calendar is the landing page (SPEC §13)."""
-    return templates.TemplateResponse(request, "calendar.html", _calendar_context(month))
+    return templates.TemplateResponse(
+        request, "calendar.html", _calendar_context(int(request.state.user["id"]), month)
+    )
 
 
 @app.get("/settings")
@@ -340,14 +570,14 @@ def _filter_from(request: Request) -> LibraryFilter:
 
 @app.get("/library")
 async def library(request: Request):
-    f = _filter_from(request)
+    f = replace(_filter_from(request), user_id=int(request.state.user["id"]))
     with session() as conn:
         total = count_series(conn, f)
         rows = query_series(conn, f)
         facets = facet_counts(conn, f)
         sections = section_titles(conn)
-        pinned_total = pinned_count(conn)
-        can_undo = latest_bulk_batch(conn) is not None
+        pinned_total = pinned_count(conn, f.user_id)
+        can_undo = latest_bulk_batch(conn, f.user_id) is not None
 
     pages = max(1, ceil(total / PAGE_SIZE))
     return templates.TemplateResponse(
@@ -387,21 +617,21 @@ async def poster_image(series_id: int):
 
 
 @app.post("/api/series/{series_id}/pin")
-async def pin_series(series_id: int) -> JSONResponse:
-    return _set_pin(series_id, True)
+async def pin_series(request: Request, series_id: int) -> JSONResponse:
+    return _set_pin(int(request.state.user["id"]), series_id, True)
 
 
 @app.post("/api/series/{series_id}/unpin")
-async def unpin_series(series_id: int) -> JSONResponse:
-    return _set_pin(series_id, False)
+async def unpin_series(request: Request, series_id: int) -> JSONResponse:
+    return _set_pin(int(request.state.user["id"]), series_id, False)
 
 
-def _set_pin(series_id: int, pinned: bool) -> JSONResponse:
+def _set_pin(user_id: int, series_id: int, pinned: bool) -> JSONResponse:
     with session() as conn:
         if get_series(conn, series_id) is None:
             raise HTTPException(status_code=404, detail="no such series")
-        set_pinned(conn, series_id, pinned)
-        total = pinned_count(conn)
+        set_pinned(conn, user_id, series_id, pinned)
+        total = pinned_count(conn, user_id)
     return JSONResponse({"id": series_id, "pinned": pinned, "pinned_total": total})
 
 
@@ -413,19 +643,21 @@ async def bulk_pin_filtered(request: Request) -> JSONResponse:
     it — so nothing can go stale between rendering the grid and clicking the
     button (SPEC §11).
     """
+    user_id = int(request.state.user["id"])
     with session() as conn:
-        ids = matching_ids(conn, _filter_from(request))
-        count, batch = bulk_pin(conn, ids)
-        total = pinned_count(conn)
+        ids = matching_ids(conn, replace(_filter_from(request), user_id=user_id))
+        count, batch = bulk_pin(conn, user_id, ids)
+        total = pinned_count(conn, user_id)
     return JSONResponse({"pinned": count, "batch": batch, "pinned_total": total})
 
 
 @app.post("/api/series/bulk-undo")
-async def bulk_undo() -> JSONResponse:
+async def bulk_undo(request: Request) -> JSONResponse:
+    user_id = int(request.state.user["id"])
     with session() as conn:
-        batch = latest_bulk_batch(conn)
-        undone = undo_bulk_pin(conn, batch) if batch else 0
-        total = pinned_count(conn)
+        batch = latest_bulk_batch(conn, user_id)
+        undone = undo_bulk_pin(conn, user_id, batch) if batch else 0
+        total = pinned_count(conn, user_id)
     return JSONResponse({"undone": undone, "pinned_total": total})
 
 
@@ -444,7 +676,7 @@ def _now_local() -> tuple[datetime, ZoneInfo]:
     return datetime.now(UTC), tz
 
 
-def _calendar_context(month: str | None) -> dict[str, Any]:
+def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
     now, tz = _now_local()
     today = now.astimezone(tz).date()
 
@@ -464,16 +696,17 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
     window_end = max(grid_end, agenda_end, today + timedelta(days=LOOKAHEAD_DAYS)) + timedelta(days=1)
 
     with session() as conn:
-        rows = pinned_episodes(conn, window_start.isoformat(), window_end.isoformat())
+        rows = pinned_episodes(conn, user_id, window_start.isoformat(), window_end.isoformat())
         overdue = overdue_episodes(
             conn,
+            user_id,
             (today - timedelta(days=OVERDUE_DAYS)).isoformat(),
             now.isoformat(),
         )
-        announced = pinned_by_outlook(conn, ("announced",))
-        filming = pinned_by_outlook(conn, ("in_production",))
-        dormant = pinned_by_outlook(conn, ("dormant", "cancelled"))
-        pinned_total = pinned_count(conn)
+        announced = pinned_by_outlook(conn, user_id, ("announced",))
+        filming = pinned_by_outlook(conn, user_id, ("in_production",))
+        dormant = pinned_by_outlook(conn, user_id, ("dormant", "cancelled"))
+        pinned_total = pinned_count(conn, user_id)
 
     episodes = [decorate(r, now=now, tz=str(tz)) for r in rows]
 
@@ -562,7 +795,9 @@ async def calendar(request: Request, month: str | None = None):
 
 
 @app.get("/api/calendar")
-async def calendar_json(start: str | None = None, end: str | None = None) -> JSONResponse:
+async def calendar_json(
+    request: Request, start: str | None = None, end: str | None = None
+) -> JSONResponse:
     """Pinned episodes in a window, with derived state. SPEC §12."""
     now, tz = _now_local()
     today = now.astimezone(tz).date()
@@ -570,7 +805,7 @@ async def calendar_json(start: str | None = None, end: str | None = None) -> JSO
     finish = end or (today + timedelta(days=AGENDA_DAYS)).isoformat()
 
     with session() as conn:
-        rows = pinned_episodes(conn, begin, finish)
+        rows = pinned_episodes(conn, int(request.state.user["id"]), begin, finish)
 
     return JSONResponse(
         {
@@ -596,7 +831,7 @@ async def calendar_json(start: str | None = None, end: str | None = None) -> JSO
 async def series_detail(request: Request, series_id: int):
     now, tz = _now_local()
     with session() as conn:
-        row = get_series(conn, series_id)
+        row = get_series(conn, series_id, int(request.state.user["id"]))
         if row is None:
             raise HTTPException(status_code=404, detail="no such series")
         episodes = series_episodes(conn, series_id)

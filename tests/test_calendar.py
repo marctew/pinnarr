@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from app import auth
 from app.db import session, utcnow
 from app.episodes import AVAILABLE, AWAITING, MISSING, UPCOMING, episode_state
 from app.main import app
@@ -70,7 +71,7 @@ def test_an_undated_episode_does_not_crash_and_reads_as_upcoming():
 # ── The view ──
 
 
-def seed(conn, *, pinned=1, air_offset_days=2, has_file=0, outlook="dated"):
+def seed(conn, *, pinned=1, air_offset_days=2, has_file=0, outlook="dated", user_id=1):
     now = utcnow()
     cur = conn.execute(
         "INSERT INTO series (title, sort_title, pinned, outlook, created_at, updated_at) "
@@ -84,12 +85,21 @@ def seed(conn, *, pinned=1, air_offset_days=2, has_file=0, outlook="dated"):
         "has_file, in_plex, monitored, updated_at) VALUES (?, 2, 7, 'Cold Harbor', ?, ?, 0, 1, ?)",
         (sid, air.isoformat(), has_file, now),
     )
+    # Pins live in their own table now; series.pinned is only the derived
+    # "anyone pinned this" flag. user 1 is the admin the fixture creates.
+    if pinned:
+        conn.execute(
+            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+            (user_id, sid, now),
+        )
     return sid
 
 
 @pytest.fixture
-def client(db):
+def client(db, admin_token):
+    token, _ = admin_token
     with TestClient(app) as c:
+        c.cookies.set(auth.COOKIE, token)
         yield c
 
 
