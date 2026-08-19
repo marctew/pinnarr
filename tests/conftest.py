@@ -31,3 +31,26 @@ def db(monkeypatch):
         for suffix in ("", "-wal", "-shm"):
             with contextlib.suppress(OSError):
                 os.unlink(path + suffix)
+
+
+@pytest.fixture
+def unmigrated_db(monkeypatch, tmp_path):
+    """A database path that does not exist yet — a genuinely fresh install.
+
+    The `db` fixture migrates before handing over, which is what let a
+    startup-ordering bug through: settings were read before the table
+    holding them was created.
+    """
+    path = tmp_path / "fresh.db"
+
+    monkeypatch.setenv("DATABASE_PATH", str(path))
+
+    from app.config import get_bootstrap, get_settings
+
+    get_bootstrap.cache_clear()
+    get_settings.cache_clear()
+    try:
+        yield path
+    finally:
+        get_bootstrap.cache_clear()
+        get_settings.cache_clear()

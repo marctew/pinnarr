@@ -77,3 +77,11 @@ def test_a_triggered_run_shows_up_on_healthz(client):
     runs = {r["job"]: r for r in client.get("/healthz").json()["last_runs"]}
     assert runs["sonarr_series"]["status"] == "ok"
     assert runs["sonarr_series"]["finished_at"]
+
+
+def test_a_completely_fresh_database_boots(unmigrated_db):
+    """First start on a new install: nothing exists, not even the schema."""
+    assert not unmigrated_db.exists()
+    with TestClient(app) as c:
+        assert c.get("/healthz").status_code == 200
+    assert unmigrated_db.exists()

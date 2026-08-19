@@ -43,11 +43,13 @@ def configure_logging() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
-    settings = get_settings()
-
-    migrate()
     log.info("pinnarr %s starting", __version__)
 
+    # Strictly before anything reads settings: they live in this database now,
+    # and on a fresh install the table holding them does not exist yet.
+    migrate()
+
+    settings = get_settings()
     if missing := settings.missing_config():
         # Boot anyway. A misconfigured integration should show up on the
         # health page, not send the container into a crash loop that hides
