@@ -247,7 +247,12 @@ data with a past `nextAiring` must fall through rather than read as dated.
 
 **Honest limit.** These reflect *metadata state*, not insider knowledge. A show renewed by the network last Tuesday won't read as `in_production` until someone updates TMDB. The badge can be stale in either direction by a few weeks. It is not prophetic, and the UI shouldn't imply it is.
 
-**Calendar treatment.** The old undifferentiated "no date yet" pile splits into three sections: **Announced**, **In production**, and **Dormant** — the last collapsed by default, since it's a prompt to prune rather than something to look forward to.
+**Calendar treatment.** Month cells name the shows airing that day rather than
+marking them with a dot — a dot tells you something is happening and refuses to
+say what, which is only tolerable on a calendar you already know by heart. Each
+name links to the series page.
+
+The old undifferentiated "no date yet" pile splits into three sections: **Announced**, **In production**, and **Dormant** — the last collapsed by default, since it's a prompt to prune rather than something to look forward to.
 
 ## 11. Library browser: filtering and pinning
 
@@ -284,6 +289,7 @@ makes every unticked value read zero, which looks like a bug and is useless.
 
 ```
 GET   /                          Calendar view (month grid + 14-day agenda)
+GET   /series/{id}               Per-series page: metadata, episodes, pin toggle
 GET   /settings                  Admin panel — all configuration
 POST  /settings                  Save the panel; reschedules if timing changed
 POST  /api/settings/test/{svc}   Connection test against saved settings

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ s['title'] }} · Pinnarr{% endblock %}
+
+{% block content %}
+<p class="crumb"><a href="/library">‹ Library</a></p>
+
+<div class="detail">
+  <img class="art" src="/poster/{{ s['id'] }}" alt="" width="200" height="300">
+
+  <div class="meta">
+    <h1>{{ s['title'] }}{% if s['year'] %} <span class="year">{{ s['year'] }}</span>{% endif %}</h1>
+    <p class="lede">
+      {% if s['network'] %}{{ s['network'] }}{% endif %}
+      {% if genres %}· {{ genres|join(', ') }}{% endif %}
+    </p>
+
+    <p>
+      <span class="badge-lg outlook-{{ s['outlook'] or 'unknown' }}">
+        {{ {'dated': '▸ dated', 'announced': 'announced', 'in_production': 'filming',
+            'between_seasons': 'hiatus', 'dormant': '⚠ probably over',
+            'cancelled': 'cancelled', 'ended': 'ended'}.get(s['outlook'], '—') }}
+      </span>
+      {% if s['next_airing'] %}<span class="next">next {{ s['next_airing'][:10] }}</span>{% endif %}
+    </p>
+
+    <p class="actions">
+      <button type="button" id="pin" class="{{ 'primary' if s['pinned'] }}"
+              onclick="togglePin({{ s['id'] }})">
+        {{ 'Pinned' if s['pinned'] else 'Pin this show' }}
+      </button>
+    </p>
+
+    {% if s['overview'] %}<p class="overview">{{ s['overview'] }}</p>{% endif %}
+
+    <dl class="facts">
+      <dt>Sonarr</dt><dd>{{ s['sonarr_status'] or '—' }}{% if not s['in_sonarr'] %} (not in Sonarr){% endif %}</dd>
+      <dt>TMDB</dt><dd>{{ s['tmdb_status'] or '—' }}</dd>
+      <dt>In Plex</dt><dd>{{ 'yes' if s['in_plex'] else 'no' }}</dd>
+      <dt>Seasons</dt><dd>{{ s['latest_season'] or '—' }} known, {{ s['latest_aired_season'] or '—' }} aired</dd>
+      <dt>Last watched</dt><dd>{{ s['last_watched_at'][:10] if s['last_watched_at'] else 'never' }}</dd>
+      <dt>IDs</dt><dd class="ids">
+        {% if s['tvdb_id'] %}tvdb {{ s['tvdb_id'] }}{% endif %}
+        {% if s['tmdb_id'] %}· tmdb {{ s['tmdb_id'] }}{% endif %}
+        {% if s['match_confidence'] == 'soft' %}<span class="soft">soft match</span>{% endif %}
+      </dd>
+    </dl>
+  </div>
+</div>
+
+<h2 class="section">Episodes {% if episodes %}<span class="hint">— within the synced window</span>{% endif %}</h2>
+{% if episodes %}
+  <ul class="agenda">
+    {% for ep in episodes %}
+      <li class="ep state-{{ ep.state }}">
+        <span class="when">{% if ep.air_local %}{{ ep.air_local.strftime('%a') }} {{ ep.air_local.day }} {{ ep.air_local.strftime('%b') }}{% endif %}</span>
+        <span class="show">{{ ep.title or '—' }}</span>
+        <span class="code">{{ ep.code }}</span>
+        <span class="state">{{ ep.mark }} {{ ep.label }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">No episodes in the synced window. Sonarr only supplies −7 to +60 days.</p>
+{% endif %}
+
+<script>
+  async function togglePin(id) {
+    const btn = document.getElementById('pin');
+    const pinned = btn.classList.contains('primary');
+    const r = await fetch('/api/series/' + id + '/' + (pinned ? 'unpin' : 'pin'), { method: 'POST' });
+    if (!r.ok) return;
+    const data = await r.json();
+    btn.classList.toggle('primary', data.pinned);
+    btn.textContent = data.pinned ? 'Pinned' : 'Pin this show';
+  }
+</script>
+{% endblock %}

@@ -78,7 +78,9 @@
             <img src="/poster/{{ s['id'] }}" alt="" loading="lazy" width="200" height="300">
             <span class="pin">📌</span>
           </button>
-          <h4>{{ s['title'] }}{% if s['year'] %} <span class="year">{{ s['year'] }}</span>{% endif %}</h4>
+          <a class="info" href="/series/{{ s['id'] }}" title="{{ s['title'] }} details">i</a>
+          <h4><a href="/series/{{ s['id'] }}">{{ s['title'] }}</a>{% if s['year'] %}
+            <span class="year">{{ s['year'] }}</span>{% endif %}</h4>
           <p class="badge outlook-{{ s['outlook'] or 'unknown' }}">
             {{ {'dated': '▸ dated', 'announced': 'announced', 'in_production': 'filming',
                 'between_seasons': 'hiatus', 'dormant': '⚠ probably over',

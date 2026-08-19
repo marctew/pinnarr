@@ -191,3 +191,11 @@ def test_day_cells_carry_the_show_names(client):
     with session() as conn:
         seed(conn, air_offset_days=3)
     assert "Severance S02E07" in client.get("/").text
+
+
+def test_the_month_grid_names_the_shows_in_each_cell(client):
+    with session() as conn:
+        sid = seed(conn, air_offset_days=3)
+    body = client.get("/").text
+    assert f'href="/series/{sid}"' in body
+    assert "cell-show" in body

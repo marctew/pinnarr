@@ -41,6 +41,7 @@ from app.repo import (
     bulk_pin,
     count_series,
     facet_counts,
+    genres_for,
     get_series,
     latest_bulk_batch,
     matching_ids,
@@ -49,6 +50,7 @@ from app.repo import (
     pinned_count,
     pinned_episodes,
     query_series,
+    series_episodes,
     set_pinned,
     undo_bulk_pin,
 )
@@ -466,7 +468,7 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
     agenda: dict[date, list[dict[str, Any]]] = defaultdict(list)
     by_month: dict[date, list[dict[str, Any]]] = defaultdict(list)
     marks: dict[date, int] = defaultdict(int)
-    names: dict[date, list[str]] = defaultdict(list)
+    names: dict[date, list[dict[str, Any]]] = defaultdict(list)
     upcoming: list[dict[str, Any]] = []
 
     for ep in episodes:
@@ -474,7 +476,14 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
             continue
         day = ep["air_local"].date()
         marks[day] += 1
-        names[day].append(f"{ep['series_title']} {ep['code']}")
+        names[day].append(
+            {
+                "id": ep["series_id"],
+                "title": ep["series_title"],
+                "code": ep["code"],
+                "state": ep["state"],
+            }
+        )
         if today <= day < agenda_end:
             agenda[day].append(ep)
         elif day >= agenda_end:
@@ -552,4 +561,25 @@ async def calendar_json(start: str | None = None, end: str | None = None) -> JSO
                 for r in rows
             ],
         }
+    )
+
+
+@app.get("/series/{series_id}")
+async def series_detail(request: Request, series_id: int):
+    now, tz = _now_local()
+    with session() as conn:
+        row = get_series(conn, series_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="no such series")
+        episodes = series_episodes(conn, series_id)
+        genres = genres_for(conn, series_id)
+
+    return templates.TemplateResponse(
+        request,
+        "series.html",
+        {
+            "s": row,
+            "genres": genres,
+            "episodes": [decorate(e, now=now, tz=str(tz)) for e in episodes],
+        },
     )

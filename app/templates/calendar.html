@@ -5,7 +5,7 @@
 {% macro episode_row(ep, show_date=True) %}
   <li class="ep state-{{ ep.state }}">
     <span class="when">{% if show_date and ep.air_local %}{{ ep.air_local.strftime('%a') }} {{ ep.air_local.day }} {{ ep.air_local.strftime('%b') }}{% endif %}</span>
-    <a class="show" href="/library?q={{ ep.series_title|urlencode }}">{{ ep.series_title }}</a>
+    <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
     <span class="code">{{ ep.code }}</span>
     <span class="state">{{ ep.mark }} {{ ep.label }}</span>
   </li>
@@ -27,7 +27,7 @@
       {% for ep in eps %}
         <li class="ep state-{{ ep.state }}">
           <span class="when">{% if loop.first %}{{ day.strftime('%a') }} {{ day.day }} {{ day.strftime('%b') }}{% endif %}</span>
-          <a class="show" href="/library?q={{ ep.series_title|urlencode }}">{{ ep.series_title }}</a>
+          <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
           <span class="code">{{ ep.code }}</span>
           <span class="state">{{ ep.mark }} {{ ep.label }}</span>
         </li>
@@ -62,10 +62,13 @@
     {% for week in weeks %}
       <tr>
         {% for cell in week %}
-          <td class="{{ 'dim' if not cell.in_month }} {{ 'today' if cell.is_today }}"
-              {% if cell.names %}title="{{ cell.names|join('&#10;') }}"{% endif %}>
+          <td class="{{ 'dim' if not cell.in_month }} {{ 'today' if cell.is_today }}">
             <span class="num">{{ cell.date.day }}</span>
-            {% if cell.count %}<span class="dots">{{ '●' * [cell.count, 4]|min }}</span>{% endif %}
+            {% for item in cell.names[:3] %}
+              <a class="cell-show state-{{ item.state }}" href="/series/{{ item.id }}"
+                 title="{{ item.title }} {{ item.code }}">{{ item.title }}</a>
+            {% endfor %}
+            {% if cell.count > 3 %}<span class="more">+{{ cell.count - 3 }} more</span>{% endif %}
           </td>
         {% endfor %}
       </tr>
@@ -79,7 +82,7 @@
       {% for ep in eps %}
         <li class="ep state-{{ ep.state }}">
           <span class="when">{% if loop.first %}{{ day.strftime('%a') }} {{ day.day }}{% endif %}</span>
-          <a class="show" href="/library?q={{ ep.series_title|urlencode }}">{{ ep.series_title }}</a>
+          <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
           <span class="code">{{ ep.code }}</span>
           <span class="state">{{ ep.mark }} {{ ep.label }}</span>
         </li>
@@ -92,12 +95,12 @@
 
 {% if announced %}
   <h2 class="section">Announced, no dates yet</h2>
-  <p class="chips">{% for s in announced %}<span class="chip">{{ s['title'] }}</span>{% endfor %}</p>
+  <p class="chips">{% for s in announced %}<a class="chip" href="/series/{{ s['id'] }}">{{ s['title'] }}</a>{% endfor %}</p>
 {% endif %}
 
 {% if filming %}
   <h2 class="section">In production</h2>
-  <p class="chips">{% for s in filming %}<span class="chip">{{ s['title'] }}</span>{% endfor %}</p>
+  <p class="chips">{% for s in filming %}<a class="chip" href="/series/{{ s['id'] }}">{{ s['title'] }}</a>{% endfor %}</p>
 {% endif %}
 
 {% if dormant %}
@@ -106,7 +109,7 @@
     <p class="hint">Nothing has aired in a long time and nothing is in production.
       These are candidates to unpin rather than things to look forward to.</p>
     <p class="chips">
-      {% for s in dormant %}<span class="chip">{{ s['title'] }}</span>{% endfor %}
+      {% for s in dormant %}<a class="chip" href="/series/{{ s['id'] }}">{{ s['title'] }}</a>{% endfor %}
     </p>
   </details>
 {% endif %}

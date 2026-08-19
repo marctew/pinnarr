@@ -589,3 +589,32 @@ def pinned_by_outlook(conn: sqlite3.Connection, outlooks: tuple[str, ...]) -> li
             outlooks,
         )
     )
+
+
+# ── Series detail ────────────────────────────────
+
+
+def series_episodes(conn: sqlite3.Connection, series_id: int) -> list[sqlite3.Row]:
+    """Every episode we hold for one series, newest season first.
+
+    Only covers the calendar window the sync pulls (SPEC §8), so this is
+    "what's near", not a full episode guide.
+    """
+    return list(
+        conn.execute(
+            "SELECT * FROM episodes WHERE series_id = ? "
+            "ORDER BY season DESC, episode ASC",
+            (series_id,),
+        )
+    )
+
+
+def genres_for(conn: sqlite3.Connection, series_id: int) -> list[str]:
+    return [
+        r["name"]
+        for r in conn.execute(
+            "SELECT g.name FROM genres g JOIN series_genres sg ON sg.genre_id = g.id "
+            "WHERE sg.series_id = ? ORDER BY g.name",
+            (series_id,),
+        )
+    ]
