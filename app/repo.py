@@ -529,3 +529,63 @@ def get_series(conn: sqlite3.Connection, series_id: int) -> sqlite3.Row | None:
     return conn.execute(
         f"SELECT s.*, {_rank_case()} AS outlook_rank FROM series s WHERE s.id = ?", (series_id,)
     ).fetchone()
+
+
+# ── Calendar (SPEC §13) ──────────────────────────
+
+_EPISODE_SELECT = """
+    -- Aliased: e.* already carries a `title` (the episode's), and an
+    -- unaliased s.title is silently shadowed by it.
+    SELECT e.*, s.title AS series_title, s.id AS series_id, s.outlook, s.poster_url
+    FROM episodes e JOIN series s ON s.id = e.series_id
+    WHERE s.pinned = 1
+"""
+
+
+def pinned_episodes(
+    conn: sqlite3.Connection, start: str, end: str
+) -> list[sqlite3.Row]:
+    """Pinned episodes airing in a window, chronological.
+
+    The calendar job pulls the window for *all* series and this filters to
+    pinned at render time (SPEC §8), so pinning takes effect immediately
+    rather than waiting for a refetch.
+    """
+    return list(
+        conn.execute(
+            _EPISODE_SELECT
+            + " AND e.air_date_utc >= ? AND e.air_date_utc < ?"
+            + " ORDER BY e.air_date_utc ASC, s.sort_title ASC",
+            (start, end),
+        )
+    )
+
+
+def overdue_episodes(conn: sqlite3.Connection, since: str, now: str) -> list[sqlite3.Row]:
+    """Aired, not in Plex, not too long ago to still care about.
+
+    Bounded by `since` because an unbounded query resurfaces every gap in the
+    back catalogue, which buries the two episodes that actually went missing
+    this week.
+    """
+    return list(
+        conn.execute(
+            _EPISODE_SELECT
+            + " AND e.air_date_utc >= ? AND e.air_date_utc < ?"
+            + " AND e.has_file = 0 AND e.in_plex = 0 AND e.monitored = 1"
+            + " ORDER BY e.air_date_utc DESC",
+            (since, now),
+        )
+    )
+
+
+def pinned_by_outlook(conn: sqlite3.Connection, outlooks: tuple[str, ...]) -> list[sqlite3.Row]:
+    """Pinned series in given outlook states, for the calendar's tail sections."""
+    marks = ",".join("?" * len(outlooks))
+    return list(
+        conn.execute(
+            f"SELECT * FROM series WHERE pinned = 1 AND outlook IN ({marks}) "
+            "ORDER BY sort_title ASC",
+            outlooks,
+        )
+    )

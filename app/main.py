@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from calendar import monthrange
 from collections import defaultdict
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, date, datetime, timedelta
 from math import ceil
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -26,6 +29,7 @@ from app.config import (
     save_settings,
 )
 from app.db import last_runs, migrate, session
+from app.episodes import decorate, episode_state
 from app.health import test_service
 from app.jobs import REGISTRY, build_scheduler
 from app.media import poster
@@ -40,7 +44,10 @@ from app.repo import (
     get_series,
     latest_bulk_batch,
     matching_ids,
+    overdue_episodes,
+    pinned_by_outlook,
     pinned_count,
+    pinned_episodes,
     query_series,
     set_pinned,
     undo_bulk_pin,
@@ -220,10 +227,9 @@ async def trigger_sync(job: str) -> JSONResponse:
 
 
 @app.get("/")
-async def index() -> RedirectResponse:
-    # The calendar takes this route once it exists; until then the panel is
-    # the only thing here, and a 404 on the front page helps nobody.
-    return RedirectResponse("/settings", status_code=307)
+async def index(request: Request, month: str | None = None):
+    """The calendar is the landing page (SPEC §13)."""
+    return templates.TemplateResponse(request, "calendar.html", _calendar_context(month))
 
 
 @app.get("/settings")
@@ -407,3 +413,124 @@ async def bulk_undo() -> JSONResponse:
         undone = undo_bulk_pin(conn, batch) if batch else 0
         total = pinned_count(conn)
     return JSONResponse({"undone": undone, "pinned_total": total})
+
+
+# ── Calendar (SPEC §13) ──────────────────────────
+
+AGENDA_DAYS = 14
+#: How far back "aired, not arrived" looks. Beyond this it stops being news
+#: and starts being an audit of the back catalogue.
+OVERDUE_DAYS = 30
+
+
+def _now_local() -> tuple[datetime, ZoneInfo]:
+    tz = ZoneInfo(get_settings().tz)
+    return datetime.now(UTC), tz
+
+
+def _calendar_context(month: str | None) -> dict[str, Any]:
+    now, tz = _now_local()
+    today = now.astimezone(tz).date()
+
+    anchor = today.replace(day=1)
+    if month:
+        with suppress(ValueError):
+            anchor = date.fromisoformat(month + "-01")
+
+    grid_start = anchor - timedelta(days=anchor.weekday())
+    last = anchor.replace(day=monthrange(anchor.year, anchor.month)[1])
+    grid_end = last + timedelta(days=6 - last.weekday())
+
+    agenda_end = today + timedelta(days=AGENDA_DAYS)
+    window_start = min(grid_start, today - timedelta(days=OVERDUE_DAYS))
+    window_end = max(grid_end, agenda_end) + timedelta(days=1)
+
+    with session() as conn:
+        rows = pinned_episodes(conn, window_start.isoformat(), window_end.isoformat())
+        overdue = overdue_episodes(
+            conn,
+            (today - timedelta(days=OVERDUE_DAYS)).isoformat(),
+            now.isoformat(),
+        )
+        announced = pinned_by_outlook(conn, ("announced",))
+        filming = pinned_by_outlook(conn, ("in_production",))
+        dormant = pinned_by_outlook(conn, ("dormant", "cancelled"))
+        pinned_total = pinned_count(conn)
+
+    episodes = [decorate(r, now=now, tz=str(tz)) for r in rows]
+
+    agenda: dict[date, list[dict[str, Any]]] = defaultdict(list)
+    marks: dict[date, int] = defaultdict(int)
+    for ep in episodes:
+        if ep["air_local"] is None:
+            continue
+        day = ep["air_local"].date()
+        marks[day] += 1
+        if today <= day < agenda_end:
+            agenda[day].append(ep)
+
+    weeks: list[list[dict[str, Any]]] = []
+    cursor = grid_start
+    while cursor <= grid_end:
+        week = []
+        for _ in range(7):
+            week.append(
+                {
+                    "date": cursor,
+                    "in_month": cursor.month == anchor.month,
+                    "is_today": cursor == today,
+                    "count": marks.get(cursor, 0),
+                }
+            )
+            cursor += timedelta(days=1)
+        weeks.append(week)
+
+    return {
+        "today": today,
+        "agenda": sorted(agenda.items()),
+        "overdue": [decorate(r, now=now, tz=str(tz)) for r in overdue],
+        "announced": announced,
+        "filming": filming,
+        "dormant": dormant,
+        "pinned_total": pinned_total,
+        "weeks": weeks,
+        "month_label": anchor.strftime("%B %Y"),
+        "prev_month": (anchor - timedelta(days=1)).strftime("%Y-%m"),
+        "next_month": (last + timedelta(days=1)).strftime("%Y-%m"),
+    }
+
+
+@app.get("/calendar")
+async def calendar(request: Request, month: str | None = None):
+    return templates.TemplateResponse(request, "calendar.html", _calendar_context(month))
+
+
+@app.get("/api/calendar")
+async def calendar_json(start: str | None = None, end: str | None = None) -> JSONResponse:
+    """Pinned episodes in a window, with derived state. SPEC §12."""
+    now, tz = _now_local()
+    today = now.astimezone(tz).date()
+    begin = start or today.isoformat()
+    finish = end or (today + timedelta(days=AGENDA_DAYS)).isoformat()
+
+    with session() as conn:
+        rows = pinned_episodes(conn, begin, finish)
+
+    return JSONResponse(
+        {
+            "start": begin,
+            "end": finish,
+            "episodes": [
+                {
+                    "series": r["series_title"],
+                    "series_id": r["series_id"],
+                    "season": r["season"],
+                    "episode": r["episode"],
+                    "title": r["title"],
+                    "air_date_utc": r["air_date_utc"],
+                    "state": episode_state(r, now=now, tz=str(tz)),
+                }
+                for r in rows
+            ],
+        }
+    )

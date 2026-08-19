@@ -22,10 +22,9 @@ def client(db):
         yield c
 
 
-def test_root_sends_you_to_the_panel(client):
-    r = client.get("/", follow_redirects=False)
-    assert r.status_code == 307
-    assert r.headers["location"] == "/settings"
+def test_the_panel_is_reachable_from_every_page(client):
+    # The root is the calendar now, so the nav is the only way in.
+    assert 'href="/settings"' in client.get("/").text
 
 
 def test_the_panel_renders(client):

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Calendar · Pinnarr{% endblock %}
+{% block nav_calendar %}active{% endblock %}
+
+{% macro episode_row(ep, show_date=True) %}
+  <li class="ep state-{{ ep.state }}">
+    <span class="when">{% if show_date and ep.air_local %}{{ ep.air_local.strftime('%a') }} {{ ep.air_local.day }} {{ ep.air_local.strftime('%b') }}{% endif %}</span>
+    <a class="show" href="/library?q={{ ep.series_title|urlencode }}">{{ ep.series_title }}</a>
+    <span class="code">{{ ep.code }}</span>
+    <span class="state">{{ ep.mark }} {{ ep.label }}</span>
+  </li>
+{% endmacro %}
+
+{% block content %}
+{% if not pinned_total %}
+  <h1>Nothing pinned yet</h1>
+  <p class="lede">The calendar shows only the shows you pin.
+    <a href="/library">Go and pin some</a> — that's the whole point of Pinnarr.</p>
+{% else %}
+
+<h1>Next {{ 14 }} days</h1>
+<p class="lede">{{ pinned_total }} shows pinned.</p>
+
+{% if agenda %}
+  <ul class="agenda">
+    {% for day, eps in agenda %}
+      {% for ep in eps %}
+        <li class="ep state-{{ ep.state }}">
+          <span class="when">{% if loop.first %}{{ day.strftime('%a') }} {{ day.day }} {{ day.strftime('%b') }}{% endif %}</span>
+          <a class="show" href="/library?q={{ ep.series_title|urlencode }}">{{ ep.series_title }}</a>
+          <span class="code">{{ ep.code }}</span>
+          <span class="state">{{ ep.mark }} {{ ep.label }}</span>
+        </li>
+      {% endfor %}
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">Nothing from your pinned shows in the next fortnight.</p>
+{% endif %}
+
+{% if overdue %}
+  <h2 class="section warn">⚠ Aired, not arrived</h2>
+  <ul class="agenda">
+    {% for ep in overdue %}{{ episode_row(ep) }}{% endfor %}
+  </ul>
+{% endif %}
+
+<h2 class="section">
+  <a class="nav" href="?month={{ prev_month }}">‹</a>
+  {{ month_label }}
+  <a class="nav" href="?month={{ next_month }}">›</a>
+</h2>
+<table class="month">
+  <thead><tr>{% for d in ['M','T','W','T','F','S','S'] %}<th>{{ d }}</th>{% endfor %}</tr></thead>
+  <tbody>
+    {% for week in weeks %}
+      <tr>
+        {% for cell in week %}
+          <td class="{{ 'dim' if not cell.in_month }} {{ 'today' if cell.is_today }}">
+            <span class="num">{{ cell.date.day }}</span>
+            {% if cell.count %}<span class="dots">{{ '●' * [cell.count, 4]|min }}</span>{% endif %}
+          </td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if announced %}
+  <h2 class="section">Announced, no dates yet</h2>
+  <p class="chips">{% for s in announced %}<span class="chip">{{ s['title'] }}</span>{% endfor %}</p>
+{% endif %}
+
+{% if filming %}
+  <h2 class="section">In production</h2>
+  <p class="chips">{% for s in filming %}<span class="chip">{{ s['title'] }}</span>{% endfor %}</p>
+{% endif %}
+
+{% if dormant %}
+  <details class="dormant">
+    <summary>Dormant ({{ dormant|length }})</summary>
+    <p class="hint">Nothing has aired in a long time and nothing is in production.
+      These are candidates to unpin rather than things to look forward to.</p>
+    <p class="chips">
+      {% for s in dormant %}<span class="chip">{{ s['title'] }}</span>{% endfor %}
+    </p>
+  </details>
+{% endif %}
+
+{% endif %}
+{% endblock %}
