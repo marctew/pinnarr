@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Library · Pinnarr{% endblock %}
+{% block nav_library %}active{% endblock %}
+{% block main_class %}wide{% endblock %}
+
+{% macro facet(name, param, values, current, labels=None) %}
+  {% if values %}
+  <div class="facet">
+    <h3>{{ name }}</h3>
+    {% for v in values[:12] %}
+      <label>
+        <input type="checkbox" name="{{ param }}" value="{{ v.value }}"
+               {{ 'checked' if v.value|string in current }} onchange="this.form.submit()">
+        <span>{{ labels[v.value] if labels and v.value in labels else v.value }}</span>
+        <span class="n">{{ v.count }}</span>
+      </label>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="library">
+  <form class="rail" method="get" action="/library" id="filters">
+    <input type="search" name="q" value="{{ f.search }}" placeholder="Search…"
+           onsearch="this.form.submit()">
+
+    <div class="facet">
+      <h3>Pin state</h3>
+      {% for state in ['all', 'pinned', 'unpinned'] %}
+        <label>
+          <input type="radio" name="pinned" value="{{ state }}"
+                 {{ 'checked' if f.pinned == state }} onchange="this.form.submit()">
+          <span>{{ state|capitalize }}</span>
+        </label>
+      {% endfor %}
+    </div>
+
+    {{ facet("Library", "section", facets.sections, f.sections|map('string')|list) }}
+    {{ facet("Outlook", "outlook", facets.outlooks, f.outlooks) }}
+    {{ facet("Status", "status", facets.statuses, f.statuses) }}
+    {{ facet("Genre", "genre", facets.genres, f.genres) }}
+    {{ facet("Network", "network", facets.networks, f.networks) }}
+
+    <input type="hidden" name="sort" value="{{ f.sort }}">
+    <a class="clear" href="/library">Clear all</a>
+  </form>
+
+  <section class="grid-pane">
+    <div class="toolbar">
+      <span><strong>{{ total }}</strong> shows · <strong id="pinned-total">{{ pinned_total }}</strong> pinned</span>
+      <span class="spacer"></span>
+      <label class="sort">Sort
+        <select onchange="setParam('sort', this.value)">
+          {% for s in sorts %}
+            <option value="{{ s }}" {{ 'selected' if f.sort == s }}>
+              {{ {'recent': 'Recently watched', 'title': 'Title',
+                  'next': 'Next airing', 'outlook': 'Outlook'}[s] }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="button" onclick="bulkPin()" {{ 'disabled' if not total }}>Pin all shown</button>
+      <button type="button" onclick="bulkUndo()" id="undo" {{ '' if can_undo else 'hidden' }}>Undo</button>
+    </div>
+
+    <p class="result" id="bulk-result"></p>
+
+    {% if not series %}
+      <p class="empty">Nothing matches. Loosen a filter, or <a href="/library">clear them all</a>.</p>
+    {% endif %}
+
+    <div class="grid">
+      {% for s in series %}
+        <article class="card {{ 'is-pinned' if s['pinned'] }}" id="card-{{ s['id'] }}">
+          <button type="button" class="poster" onclick="togglePin({{ s['id'] }})"
+                  title="{{ 'Unpin' if s['pinned'] else 'Pin' }} {{ s['title'] }}">
+            <img src="/poster/{{ s['id'] }}" alt="" loading="lazy" width="200" height="300">
+            <span class="pin">📌</span>
+          </button>
+          <h4>{{ s['title'] }}{% if s['year'] %} <span class="year">{{ s['year'] }}</span>{% endif %}</h4>
+          <p class="badge outlook-{{ s['outlook'] or 'unknown' }}">
+            {{ {'dated': '▸ dated', 'announced': 'announced', 'in_production': 'filming',
+                'between_seasons': 'hiatus', 'dormant': '⚠ probably over',
+                'cancelled': 'cancelled', 'ended': 'ended'}.get(s['outlook'], '—') }}
+          </p>
+        </article>
+      {% endfor %}
+    </div>
+
+    {% if pages > 1 %}
+      <nav class="pager">
+        <button type="button" onclick="setParam('page', {{ page - 1 }})" {{ 'disabled' if page <= 1 }}>‹ Prev</button>
+        <span>Page {{ page }} of {{ pages }}</span>
+        <button type="button" onclick="setParam('page', {{ page + 1 }})" {{ 'disabled' if page >= pages }}>Next ›</button>
+      </nav>
+    {% endif %}
+  </section>
+</div>
+
+<script>
+  const QUERYSTRING = {{ querystring | tojson }};
+
+  function setParam(key, value) {
+    const params = new URLSearchParams(QUERYSTRING);
+    params.set(key, value);
+    if (key !== 'page') params.delete('page');   // a new filter starts at page 1
+    location.search = params.toString();
+  }
+
+  async function togglePin(id) {
+    const card = document.getElementById('card-' + id);
+    const pinned = card.classList.contains('is-pinned');
+    const r = await fetch('/api/series/' + id + '/' + (pinned ? 'unpin' : 'pin'), { method: 'POST' });
+    if (!r.ok) return;
+    const data = await r.json();
+    card.classList.toggle('is-pinned', data.pinned);
+    document.getElementById('pinned-total').textContent = data.pinned_total;
+  }
+
+  async function bulkPin() {
+    const total = {{ total }};
+    if (!confirm('Pin all ' + total + ' shows matching this filter?')) return;
+    // Send the filter, not ids — the server re-runs it, so nothing goes stale.
+    const r = await fetch('/api/series/bulk-pin?' + QUERYSTRING, { method: 'POST' });
+    const data = await r.json();
+    say(data.pinned + ' newly pinned.');
+    document.getElementById('undo').hidden = false;
+    setTimeout(() => location.reload(), 700);
+  }
+
+  async function bulkUndo() {
+    const r = await fetch('/api/series/bulk-undo', { method: 'POST' });
+    const data = await r.json();
+    say(data.undone + ' unpinned.');
+    setTimeout(() => location.reload(), 700);
+  }
+
+  function say(message) {
+    document.getElementById('bulk-result').textContent = message;
+  }
+</script>
+{% endblock %}

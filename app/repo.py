@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import uuid
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.clients.plex import PlexShow
@@ -367,3 +368,164 @@ def latest_bulk_batch(conn: sqlite3.Connection) -> str | None:
         "ORDER BY pinned_at DESC LIMIT 1"
     ).fetchone()
     return row["pin_batch"] if row else None
+
+
+# ── Library browsing (SPEC §11) ──────────────────
+
+#: A 2000-series library is the normal case, not the extreme one, so the grid
+#: pages. Facets narrow; pagination makes the un-narrowed view survivable.
+PAGE_SIZE = 60
+
+SORTS: dict[str, str] = {
+    # NULLs sort smallest in SQLite, so DESC already puts never-watched last.
+    "recent": "s.last_watched_at DESC, s.sort_title ASC",
+    "title": "s.sort_title ASC",
+    # ...but ASC would put undated first, which is the opposite of useful.
+    "next": "s.next_airing IS NULL, s.next_airing ASC",
+    "outlook": "outlook_rank ASC, s.sort_title ASC",
+}
+
+#: Ladder order from SPEC §10, so "sort by outlook" reads as most-imminent
+#: first rather than alphabetically by a label nobody thinks in.
+OUTLOOK_RANK = [
+    "dated", "announced", "in_production", "between_seasons",
+    "dormant", "cancelled", "ended", "unknown",
+]
+
+PIN_STATES = ("all", "pinned", "unpinned")
+
+
+@dataclass(frozen=True)
+class LibraryFilter:
+    """Everything the library view can be narrowed by. Values within a facet
+    are OR'd, facets are AND'd together (SPEC §11)."""
+
+    search: str = ""
+    sections: tuple[int, ...] = ()
+    statuses: tuple[str, ...] = ()
+    outlooks: tuple[str, ...] = ()
+    genres: tuple[str, ...] = ()
+    networks: tuple[str, ...] = ()
+    pinned: str = "all"
+    sort: str = "recent"
+    page: int = 1
+
+    def without(self, facet: str) -> LibraryFilter:
+        """This filter with one facet cleared.
+
+        Facet counts are computed against the *other* facets, so a count
+        answers "what would I get if I ticked this too" rather than
+        "how many of my current results have this value", which is always
+        either the whole result set or zero.
+        """
+        return replace(self, **{facet: ()})
+
+
+def _clauses(f: LibraryFilter) -> tuple[list[str], list[Any]]:
+    where: list[str] = []
+    params: list[Any] = []
+
+    if f.search:
+        where.append("(s.title LIKE ? OR s.sort_title LIKE ?)")
+        like = f"%{f.search}%"
+        params += [like, like]
+
+    for column, values in (
+        ("s.plex_section_id", f.sections),
+        ("s.sonarr_status", f.statuses),
+        ("s.outlook", f.outlooks),
+        ("s.network", f.networks),
+    ):
+        if values:
+            where.append(f"{column} IN ({','.join('?' * len(values))})")
+            params += list(values)
+
+    if f.genres:
+        where.append(
+            "EXISTS (SELECT 1 FROM series_genres sg JOIN genres g ON g.id = sg.genre_id "
+            f"WHERE sg.series_id = s.id AND g.name IN ({','.join('?' * len(f.genres))}))"
+        )
+        params += list(f.genres)
+
+    if f.pinned == "pinned":
+        where.append("s.pinned = 1")
+    elif f.pinned == "unpinned":
+        where.append("s.pinned = 0")
+
+    return where, params
+
+
+def _where_sql(f: LibraryFilter) -> tuple[str, list[Any]]:
+    where, params = _clauses(f)
+    return (" WHERE " + " AND ".join(where)) if where else "", params
+
+
+def _rank_case() -> str:
+    arms = " ".join(
+        f"WHEN {value!r} THEN {i}" for i, value in enumerate(OUTLOOK_RANK)
+    )
+    return f"CASE s.outlook {arms} ELSE {len(OUTLOOK_RANK)} END"
+
+
+def count_series(conn: sqlite3.Connection, f: LibraryFilter) -> int:
+    sql, params = _where_sql(f)
+    return int(conn.execute(f"SELECT count(*) AS n FROM series s{sql}", params).fetchone()["n"])
+
+
+def query_series(conn: sqlite3.Connection, f: LibraryFilter) -> list[sqlite3.Row]:
+    sql, params = _where_sql(f)
+    order = SORTS.get(f.sort, SORTS["recent"])
+    page = max(1, f.page)
+    return list(
+        conn.execute(
+            f"SELECT s.*, {_rank_case()} AS outlook_rank FROM series s{sql} "
+            f"ORDER BY {order} LIMIT ? OFFSET ?",
+            [*params, PAGE_SIZE, (page - 1) * PAGE_SIZE],
+        )
+    )
+
+
+def matching_ids(conn: sqlite3.Connection, f: LibraryFilter) -> list[int]:
+    """Every id the filter matches, ignoring pagination.
+
+    Bulk pin re-runs the filter server-side rather than trusting a list of
+    ids from the browser, so there is no stale-id class of bug (SPEC §11).
+    """
+    sql, params = _where_sql(f)
+    return [int(r["id"]) for r in conn.execute(f"SELECT s.id FROM series s{sql}", params)]
+
+
+def _facet(
+    conn: sqlite3.Connection, f: LibraryFilter, facet: str, select: str, join: str = ""
+) -> list[dict[str, Any]]:
+    sql, params = _where_sql(f.without(facet))
+    rows = conn.execute(
+        f"SELECT {select} AS value, count(DISTINCT s.id) AS n FROM series s{join}{sql} "
+        "GROUP BY value HAVING value IS NOT NULL AND value != '' ORDER BY n DESC, value ASC",
+        params,
+    )
+    return [{"value": r["value"], "count": r["n"]} for r in rows]
+
+
+def facet_counts(conn: sqlite3.Connection, f: LibraryFilter) -> dict[str, list[dict[str, Any]]]:
+    """Counts per facet value, for the rail. One GROUP BY each."""
+    genre_join = (
+        " JOIN series_genres sg ON sg.series_id = s.id JOIN genres g ON g.id = sg.genre_id"
+    )
+    return {
+        "sections": _facet(conn, f, "sections", "s.plex_section_id"),
+        "statuses": _facet(conn, f, "statuses", "s.sonarr_status"),
+        "outlooks": _facet(conn, f, "outlooks", "s.outlook"),
+        "genres": _facet(conn, f, "genres", "g.name", genre_join),
+        "networks": _facet(conn, f, "networks", "s.network"),
+    }
+
+
+def pinned_count(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT count(*) AS n FROM series WHERE pinned = 1").fetchone()["n"])
+
+
+def get_series(conn: sqlite3.Connection, series_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        f"SELECT s.*, {_rank_case()} AS outlook_rank FROM series s WHERE s.id = ?", (series_id,)
+    ).fetchone()

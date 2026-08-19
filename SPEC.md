@@ -251,7 +251,11 @@ data with a past `nextAiring` must fall through rather than read as dated.
 
 ## 11. Library browser: filtering and pinning
 
-A flat alphabetical poster grid is fine at 40 series and miserable at 400. Facets, all AND'd together, multi-select values within a facet OR'd:
+A flat alphabetical poster grid is fine at 40 series and miserable at 400.
+The reference library turned out to hold **2060 series**, so the grid also
+**pages** — 60 per page. Facets narrow; pagination is what makes the
+un-narrowed view survivable at all, and no amount of faceting removes the
+need for it because the default view has no facets applied. Facets, all AND'd together, multi-select values within a facet OR'd:
 
 | Facet | Source | Notes |
 |---|---|---|
@@ -264,6 +268,11 @@ A flat alphabetical poster grid is fine at 40 series and miserable at 400. Facet
 | **Pin state** | `pinned` | All / pinned / unpinned |
 
 **Facet counts** — `Drama (47)`, `Continuing (61)` — one `GROUP BY` per facet, and they stop you clicking into empty results.
+
+Each facet's counts are computed with **that facet excluded** from the filter.
+A count then answers "what would I get if I ticked this as well", which is the
+question you are actually asking. Counting with the facet applied to itself
+makes every unticked value read zero, which looks like a bug and is useless.
 
 **Sort:** recently watched (default), title, next airing, outlook.
 
@@ -279,11 +288,12 @@ GET   /settings                  Admin panel — all configuration
 POST  /settings                  Save the panel; reschedules if timing changed
 POST  /api/settings/test/{svc}   Connection test against saved settings
 GET   /library                   Poster grid; facets per §11 as query params
-POST  /api/series/{id}/pin       HTMX toggle, returns updated card fragment
+POST  /api/series/{id}/pin       Toggle, returns {pinned, pinned_total} as JSON
 POST  /api/series/{id}/unpin
 POST  /api/series/{id}/notify    Per-series notification opt-out
 POST  /api/series/bulk-pin       Body carries the filter querystring
 POST  /api/series/bulk-undo      Unpin the most recent bulk-pin batch
+GET   /poster/{series_id}        Cached poster proxy — keeps the Plex token server-side
 GET   /api/calendar?start&end    JSON, for anything you want to build later
 POST  /hooks/sonarr?secret=…     Webhook receiver
 POST  /api/sync/{job}            Manual job trigger (for debugging)
