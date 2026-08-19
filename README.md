@@ -126,11 +126,12 @@ uvicorn app.main:app --reload --port 8737
 - [x] Schema, migrations, config
 - [x] Plex / Sonarr / Tautulli / TMDB / ntfy clients
 - [x] Season outlook engine
-- [ ] Sync jobs and scheduler
+- [x] Sync jobs, scheduler and series identity resolution
+- [x] Arrival notifications, reconcile pass and weekly digest
 - [ ] Calendar view
 - [ ] Library browser with faceted filtering and bulk pin
-- [ ] Sonarr webhook receiver and arrival notifications
-- [ ] Weekly digest
+- [ ] Sonarr webhook receiver (`/hooks/sonarr`)
+- [ ] Poster proxy route (`/poster/{id}`)
 - [ ] Radarr digital-release track (movies, GB region)
 - [ ] iCal feed of pinned episodes
 

@@ -220,16 +220,26 @@ The `missing` state is the one no existing tool surfaces well. "Aired four days 
 
 So `outlook` is **derived from several signals**, evaluated top-down — first match wins. Recomputed nightly by `tmdb_status`.
 
-| Outlook | Condition | Badge |
-|---|---|---|
-| `dated` | `next_airing` is set | `▸ 22 Aug` |
-| `announced` | `latest_season > latest_aired_season`, but that season's episodes have no `air_date_utc` | `S3 announced` |
-| `in_production` | TMDB `in_production = true` or `tmdb_status = In Production`, nothing scheduled | `filming` |
-| `between_seasons` | Continuing, `previous_airing` within 9 months, nothing announced | `hiatus` |
-| `dormant` | Continuing per TVDB, but `previous_airing` > 18 months ago and not in production | `⚠ probably over` |
-| `cancelled` | `tmdb_status = Canceled` | `cancelled` |
-| `ended` | `tmdb_status = Ended` or `sonarr_status = ended` | `ended` |
-| `unknown` | No usable signal | `—` |
+| # | Outlook | Condition | Badge |
+|---|---|---|---|
+| 1 | `dated` | `next_airing` is set *and in the future* | `▸ 22 Aug` |
+| 2 | `announced` | `latest_season > latest_aired_season`, but that season's episodes have no `air_date_utc` | `S3 announced` |
+| 3 | `in_production` | TMDB `in_production = true` or `tmdb_status = In Production`, nothing scheduled | `filming` |
+| 4 | `cancelled` | `tmdb_status = Canceled` | `cancelled` |
+| 5 | `ended` | `tmdb_status = Ended` or `sonarr_status = ended` | `ended` |
+| 6 | `between_seasons` | Continuing, `previous_airing` within 9 months, nothing announced | `hiatus` |
+| 7 | `dormant` | Continuing per TVDB, but `previous_airing` > 18 months ago and not in production | `⚠ probably over` |
+| 8 | `unknown` | No usable signal | `—` |
+
+**Ordering is load-bearing, and v0.2 of this spec had it wrong.** `cancelled`
+and `ended` must be evaluated *before* the hiatus/dormant rungs, or a
+genuinely finished show gets described as merely "on hiatus". Equally,
+`dated` must come first: a show TMDB calls `Ended` whose finale hasn't aired
+yet is `dated`, not `ended`. Both cases are pinned by tests
+(`test_ended_outranks_hiatus`, `test_dated_beats_a_stale_ended_status`).
+
+Note also rung 1 requires `next_airing` to be *in the future* — stale Sonarr
+data with a past `nextAiring` must fall through rather than read as dated.
 
 **Why `dormant` earns its keep.** It's pin-list hygiene. Without it, your pins slowly fill with zombie shows you're nominally still waiting on and nothing ever tells you. With it, one glance at the library sorted by outlook clears them out. This is also the distinction TVDB and Sonarr simply cannot make — hence TMDB.
 
