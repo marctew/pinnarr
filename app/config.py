@@ -8,9 +8,10 @@ crash-looping and leaving you reading container logs to find a typo.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -28,7 +29,10 @@ class Settings(BaseSettings):
     # ── Plex ─────────────────────────────────────
     plex_url: str = ""
     plex_token: str = ""
-    plex_tv_sections: list[int] = []
+    # NoDecode is load-bearing: pydantic-settings JSON-decodes complex
+    # field types straight out of .env, so "2,5" — and even an empty
+    # value — raises before the validator below ever runs.
+    plex_tv_sections: Annotated[list[int], NoDecode] = []
 
     # ── Sonarr ───────────────────────────────────
     sonarr_url: str = ""
