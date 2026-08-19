@@ -85,21 +85,26 @@ because something aired in America is a tease.
 ```bash
 git clone https://github.com/marctew/pinnarr.git
 cd pinnarr
-cp .env.example .env && chmod 600 .env
-$EDITOR .env
 docker compose up -d
 ```
 
-Then open `http://<host>:8737`.
+Then open `http://<host>:8737`, which lands on **Settings**. Fill in Plex and
+Sonarr, save, and hit **Test** on each — the Plex test lists your libraries so
+you can tick the TV ones rather than hunting for section IDs.
 
-**Never commit `.env`.** `PLEX_TOKEN` is long-lived and grants full read access
-to your library. It's gitignored, but worth knowing why.
+There is no configuration file to edit. `.env` carries only `DATABASE_PATH`
+and `LOG_LEVEL`; everything else lives in the database.
+
+**Your tokens are in the database.** `PLEX_TOKEN` is long-lived and grants full
+read access to your library, and it now sits in `pinnarr.db` rather than a
+`chmod 600` file. Give the data directory permissions to match, and don't hand
+the database around.
 
 ### Sonarr webhook
 
 Settings → Connect → **+** → Webhook:
 
-- URL: `http://<pinnarr-host>:8737/hooks/sonarr?secret=<WEBHOOK_SECRET>`
+- URL: `http://<pinnarr-host>:8737/hooks/sonarr?secret=<the webhook secret from Settings>`
 - Method: POST
 - Triggers: **On Import**, **On Upgrade**
 

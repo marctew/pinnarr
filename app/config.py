@@ -1,38 +1,55 @@
-"""Configuration, loaded from the environment.
+"""Configuration, in two layers.
 
-Every integration is optional at startup. Pinnarr boots with nothing
-configured and tells you what's missing on the health page, rather than
-crash-looping and leaving you reading container logs to find a typo.
+The split is forced rather than stylistic. Bootstrap has to come from the
+environment, because you cannot read the database's location out of the
+database. Everything else lives in the `settings` table and is edited in the
+admin panel at /settings — the environment is not consulted for it.
+
+Consequence worth knowing: editing .env no longer changes any integration.
+The panel is the only way in.
 """
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
-from typing import Annotated
+from typing import Any, Final
 
-from pydantic import field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic import BaseModel, ValidationError, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+log = logging.getLogger(__name__)
 
 
-class Settings(BaseSettings):
+class Bootstrap(BaseSettings):
+    """Read once from the environment, before the database is reachable."""
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    database_path: str = "/data/pinnarr.db"
+    log_level: str = "INFO"
+
+
+@lru_cache
+def get_bootstrap() -> Bootstrap:
+    return Bootstrap()
+
+
+class Settings(BaseModel):
+    """Everything the admin panel owns. Values arrive as strings from SQLite
+    and are coerced here, so the panel never has to care about types."""
+
     # ── Pinnarr ──────────────────────────────────
     pinnarr_base_url: str = "http://localhost:8737"
     tz: str = "Europe/London"
-    database_path: str = "/data/pinnarr.db"
-    log_level: str = "INFO"
     webhook_secret: str = ""
 
     # ── Plex ─────────────────────────────────────
     plex_url: str = ""
     plex_token: str = ""
-    # NoDecode is load-bearing: pydantic-settings JSON-decodes complex
-    # field types straight out of .env, so "2,5" — and even an empty
-    # value — raises before the validator below ever runs.
-    plex_tv_sections: Annotated[list[int], NoDecode] = []
+    plex_tv_sections: list[int] = []
 
     # ── Sonarr ───────────────────────────────────
     sonarr_url: str = ""
@@ -65,7 +82,7 @@ class Settings(BaseSettings):
     @field_validator("plex_tv_sections", mode="before")
     @classmethod
     def _split_sections(cls, v: object) -> object:
-        """Accept "2,5" or "2, 5" from the environment; empty means auto-detect."""
+        """Accept "2,5" or "2, 5" from the form; empty means auto-detect."""
         if isinstance(v, str):
             return [int(p) for p in v.replace(" ", "").split(",") if p]
         return v
@@ -104,20 +121,80 @@ class Settings(BaseSettings):
         """Human-readable list of what still needs setting up."""
         missing = []
         if not self.plex_configured:
-            missing.append("Plex (PLEX_URL, PLEX_TOKEN)")
+            missing.append("Plex (URL and token)")
         if not self.sonarr_configured:
-            missing.append("Sonarr (SONARR_URL, SONARR_API_KEY)")
+            missing.append("Sonarr (URL and API key)")
         if not self.tautulli_configured:
-            missing.append("Tautulli (TAUTULLI_URL, TAUTULLI_API_KEY) — optional")
+            missing.append("Tautulli (URL and API key) — optional")
         if not self.tmdb_configured:
-            missing.append("TMDB (TMDB_API_KEY) — needed for season outlook")
+            missing.append("TMDB (API key) — needed for season outlook")
         if not self.ntfy_configured:
-            missing.append("ntfy (NTFY_TOPIC) — optional")
+            missing.append("ntfy (topic) — optional")
         if not self.webhook_secret:
-            missing.append("WEBHOOK_SECRET — the Sonarr webhook is disabled without it")
+            missing.append("Webhook secret — the Sonarr webhook is disabled without it")
         return missing
+
+
+#: Fields never sent to the browser, and only overwritten when the form
+#: submits a non-empty value. An empty box means "leave it alone", not "clear
+#: it" — otherwise every save with an untouched password field wipes the key.
+SECRET_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "plex_token",
+        "sonarr_api_key",
+        "tautulli_api_key",
+        "tmdb_api_key",
+        "ntfy_token",
+        "radarr_api_key",
+        "webhook_secret",
+    }
+)
+
+#: Fields the scheduler reads when it is built, so changing one has to
+#: rebuild it — otherwise the new cron sits in the database doing nothing.
+SCHEDULING_FIELDS: Final[frozenset[str]] = frozenset(
+    {"tz", "digest_enabled", "digest_cron"}
+)
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    """The live settings, cached. Invalidated by save_settings()."""
+    from app.db import all_settings
+
+    stored = all_settings()
+    known = {k: v for k, v in stored.items() if k in Settings.model_fields}
+    try:
+        return Settings(**known)
+    except ValidationError as exc:
+        # A bad row must not make the app unbootable — that would leave you
+        # with no way to reach the panel and fix it.
+        log.error("stored settings failed validation, falling back to defaults: %s", exc)
+        return Settings()
+
+
+def save_settings(values: dict[str, Any]) -> Settings:
+    """Persist a partial update and return the settings as they now stand.
+
+    Validates the merged result before writing, so a bad value is rejected
+    whole rather than leaving half a form applied.
+    """
+    from app.db import set_setting
+
+    current = get_settings()
+    merged = current.model_dump()
+    merged.update(values)
+    validated = Settings(**merged)
+
+    for key in values:
+        if key not in Settings.model_fields:
+            continue
+        stored = getattr(validated, key)
+        if isinstance(stored, list):
+            stored = ",".join(str(x) for x in stored)
+        elif isinstance(stored, bool):
+            stored = "true" if stored else "false"
+        set_setting(key, str(stored))
+
+    get_settings.cache_clear()
+    return get_settings()

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Pinnarr{% endblock %}</title>
+<style>
+  /* No build step and no CDN: this box may not have internet, and a
+     self-hosted panel that breaks without it would be a poor trade. */
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #14181d; --muted: #5d6874;
+    --line: #dfe3e8; --accent: #3b6fd4; --ok: #1a7f4b; --bad: #b3261e;
+    --warn: #8a6100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181d; --panel: #1c2128; --ink: #e6edf3; --muted: #9aa7b4;
+      --line: #2d353e; --accent: #6f9ceb; --ok: #4ac48a; --bad: #f0857d;
+      --warn: #e0b341;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 1.5rem;
+    padding: 0 1.25rem; height: 52px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header .brand { font-weight: 700; letter-spacing: .14em; font-size: 13px; }
+  header nav a {
+    color: var(--muted); text-decoration: none; font-size: 14px; margin-right: 1rem;
+  }
+  header nav a.active { color: var(--ink); font-weight: 600; }
+  main { max-width: 780px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+  h1 { font-size: 20px; margin: 0 0 .25rem; }
+  h2 { font-size: 15px; margin: 0; }
+  .lede { color: var(--muted); margin: 0 0 1.5rem; }
+  fieldset {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1rem 1.15rem 1.15rem; margin: 0 0 1rem;
+  }
+  legend { padding: 0 .4rem; font-weight: 600; font-size: 14px; }
+  label { display: block; margin: .8rem 0 0; font-size: 13px; color: var(--muted); }
+  input[type=text], input[type=password], input[type=url], input[type=number], select {
+    width: 100%; margin-top: .3rem; padding: .5rem .6rem;
+    background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 14px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: .9rem; flex-wrap: wrap; }
+  .row > label { flex: 1 1 200px; }
+  .check { display: flex; align-items: center; gap: .5rem; margin-top: .9rem;
+           font-size: 14px; color: var(--ink); }
+  .check input { margin: 0; }
+  .hint { font-size: 12px; color: var(--muted); margin: .35rem 0 0; }
+  button {
+    font: inherit; font-size: 14px; padding: .45rem .9rem; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .bar {
+    position: sticky; bottom: 0; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: .75rem 1rem; display: flex; align-items: center; gap: 1rem;
+  }
+  .flash {
+    padding: .6rem .9rem; border-radius: 8px; margin: 0 0 1rem; font-size: 14px;
+    border: 1px solid var(--line); background: var(--panel);
+  }
+  .flash.ok  { border-color: var(--ok);  color: var(--ok); }
+  .flash.bad { border-color: var(--bad); color: var(--bad); }
+  .legend-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .result { font-size: 13px; margin-top: .7rem; }
+  .result.ok  { color: var(--ok); }
+  .result.bad { color: var(--bad); }
+  .result.pending { color: var(--muted); }
+  .sections { margin-top: .6rem; padding-left: .1rem; }
+  .sections label {
+    display: flex; align-items: center; gap: .5rem; color: var(--ink); margin: .3rem 0;
+  }
+  .sections .agent { color: var(--muted); font-size: 12px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">PINNARR</span>
+  <nav>
+    <a href="/settings" class="{% block nav_settings %}{% endblock %}">Settings</a>
+    <a href="/healthz">Health</a>
+  </nav>
+</header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Settings · Pinnarr{% endblock %}
+{% block nav_settings %}active{% endblock %}
+
+{% macro secret(name, label, saved) %}
+  <label>{{ label }}
+    <input type="password" name="{{ name }}" autocomplete="new-password"
+           placeholder="{{ '•••••••• saved — leave blank to keep' if saved else 'not set' }}">
+  </label>
+{% endmacro %}
+
+{% macro tester(service, label) %}
+  <button type="button" onclick="runTest('{{ service }}')" data-test="{{ service }}">Test {{ label }}</button>
+  <div class="result" id="result-{{ service }}"></div>
+{% endmacro %}
+
+{% block content %}
+<h1>Settings</h1>
+<p class="lede">
+  Pinnarr reads its configuration from here, not from the environment.
+  Save first, then test — the tests run against what's stored.
+</p>
+
+{% if flash %}<p class="flash {{ flash_kind }}">{{ flash }}</p>{% endif %}
+
+<form method="post" action="/settings">
+
+  <fieldset>
+    <legend>Pinnarr</legend>
+    <label>Base URL
+      <input type="url" name="pinnarr_base_url" value="{{ s.pinnarr_base_url }}">
+      <p class="hint">Used as the click-through target on notifications.</p>
+    </label>
+    <div class="row">
+      <label>Timezone
+        <input type="text" name="tz" value="{{ s.tz }}">
+      </label>
+    </div>
+    {{ secret("webhook_secret", "Webhook secret", saved.webhook_secret) }}
+    <p class="hint">The Sonarr webhook stays disabled until this is set.
+      Generate one with <code>openssl rand -hex 24</code>.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend><div class="legend-row"><h2>Plex</h2></div></legend>
+    <label>URL
+      <input type="url" name="plex_url" value="{{ s.plex_url }}" placeholder="http://192.168.4.10:32400">
+    </label>
+    {{ secret("plex_token", "Token", saved.plex_token) }}
+    <label>TV section IDs
+      <input type="text" name="plex_tv_sections" id="plex_tv_sections"
+             value="{{ s.plex_tv_sections | join(',') }}" placeholder="blank = auto-detect">
+      <p class="hint">Comma separated. Test the connection to list what's there and tick them.</p>
+    </label>
+    {{ tester("plex", "Plex") }}
+    <div class="sections" id="plex-sections"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend><h2>Sonarr</h2></legend>
+    <label>URL
+      <input type="url" name="sonarr_url" value="{{ s.sonarr_url }}" placeholder="http://192.168.4.10:8989">
+    </label>
+    {{ secret("sonarr_api_key", "API key", saved.sonarr_api_key) }}
+    {{ tester("sonarr", "Sonarr") }}
+  </fieldset>
+
+  <fieldset>
+    <legend><h2>Tautulli</h2></legend>
+    <label>URL
+      <input type="url" name="tautulli_url" value="{{ s.tautulli_url }}" placeholder="http://192.168.4.10:8181">
+    </label>
+    {{ secret("tautulli_api_key", "API key", saved.tautulli_api_key) }}
+    <p class="hint">Optional. Powers "recently watched" sorting in the library browser.</p>
+    {{ tester("tautulli", "Tautulli") }}
+  </fieldset>
+
+  <fieldset>
+    <legend><h2>TMDB</h2></legend>
+    {{ secret("tmdb_api_key", "API key", saved.tmdb_api_key) }}
+    <p class="hint">Needed for the season outlook — it's the only source that
+      distinguishes cancelled from ended.</p>
+    {{ tester("tmdb", "TMDB") }}
+  </fieldset>
+
+  <fieldset>
+    <legend><h2>Notifications</h2></legend>
+    <div class="row">
+      <label>ntfy server
+        <input type="url" name="ntfy_url" value="{{ s.ntfy_url }}">
+      </label>
+      <label>Topic
+        <input type="text" name="ntfy_topic" value="{{ s.ntfy_topic }}">
+      </label>
+    </div>
+    {{ secret("ntfy_token", "Token", saved.ntfy_token) }}
+    <p class="hint">Only needed if your topic is access-protected.</p>
+    <label class="check">
+      <input type="hidden" name="notify_on_arrival" value="false">
+      <input type="checkbox" name="notify_on_arrival" value="true"
+             {{ 'checked' if s.notify_on_arrival }}>
+      Push when a pinned episode arrives in Plex
+    </label>
+    <label class="check">
+      <input type="hidden" name="digest_enabled" value="false">
+      <input type="checkbox" name="digest_enabled" value="true"
+             {{ 'checked' if s.digest_enabled }}>
+      Weekly digest
+    </label>
+    <label>Digest schedule
+      <input type="text" name="digest_cron" value="{{ s.digest_cron }}">
+      <p class="hint">Cron. Default <code>0 8 * * 1</code> is Monday 08:00.</p>
+    </label>
+    <p class="hint">Testing ntfy sends a real notification to your phone.</p>
+    {{ tester("ntfy", "ntfy") }}
+  </fieldset>
+
+  <fieldset>
+    <legend><h2>Season outlook</h2></legend>
+    <div class="row">
+      <label>Hiatus threshold (months)
+        <input type="number" name="hiatus_months" value="{{ s.hiatus_months }}" min="1" max="60">
+      </label>
+      <label>Dormant threshold (months)
+        <input type="number" name="dormant_months" value="{{ s.dormant_months }}" min="1" max="120">
+      </label>
+    </div>
+    <p class="hint">How long since the last episode before a continuing show reads
+      as on hiatus, then as probably over. Both are first guesses — tune them once
+      you've seen how they land against your library.</p>
+  </fieldset>
+
+  <div class="bar">
+    <button type="submit" class="primary">Save settings</button>
+    <span class="hint">Saving reschedules the jobs if you changed the timezone or digest.</span>
+  </div>
+</form>
+
+<script>
+  async function runTest(service) {
+    const out = document.getElementById('result-' + service);
+    const btn = document.querySelector('[data-test="' + service + '"]');
+    out.className = 'result pending';
+    out.textContent = 'Testing…';
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/settings/test/' + service, { method: 'POST' });
+      const data = await r.json();
+      out.className = 'result ' + (data.ok ? 'ok' : 'bad');
+      out.textContent = (data.ok ? '✓ ' : '✕ ') + data.message;
+      if (service === 'plex' && data.sections) renderSections(data.sections);
+    } catch (err) {
+      out.className = 'result bad';
+      out.textContent = '✕ ' + err;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Turn the discovered libraries into tickboxes that drive the ID field, so
+  // nobody has to go hunting for section numbers in the Plex URL bar.
+  function renderSections(sections) {
+    const box = document.getElementById('plex-sections');
+    const field = document.getElementById('plex_tv_sections');
+    const chosen = new Set(field.value.split(',').map(s => s.trim()).filter(Boolean));
+    box.innerHTML = '';
+    for (const sec of sections) {
+      const id = String(sec.id);
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = chosen.has(id);
+      cb.onchange = () => {
+        cb.checked ? chosen.add(id) : chosen.delete(id);
+        field.value = [...chosen].join(',');
+      };
+      const name = document.createElement('span');
+      name.textContent = sec.title + ' (' + id + ')';
+      const agent = document.createElement('span');
+      agent.className = 'agent';
+      agent.textContent = sec.agent;
+      label.append(cb, name, agent);
+      box.append(label);
+    }
+  }
+</script>
+{% endblock %}

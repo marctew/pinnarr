@@ -54,6 +54,12 @@ class TmdbClient:
             self.service, "GET", f"{BASE}{path}", params={"api_key": self.api_key, **params}
         )
 
+    async def ping(self) -> str:
+        """Cheapest call that proves the key works."""
+        data = await self._get("/configuration")
+        base = (data or {}).get("images", {}).get("secure_base_url")
+        return f"key accepted (image base {base})" if base else "key accepted"
+
     async def find_by_tvdb(self, tvdb_id: int) -> int | None:
         """Resolve a TVDB id to a TMDB id. Returns None if TMDB doesn't know it."""
         data = await self._get(f"/find/{tvdb_id}", external_source="tvdb_id")

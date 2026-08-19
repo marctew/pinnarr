@@ -97,6 +97,25 @@ class PlexClient:
             self.service, "GET", f"{self.base}{path}", headers=self._headers, params=params
         )
 
+    async def sections(self) -> list[dict[str, Any]]:
+        """Every library section, with the metadata agent behind it.
+
+        The agent matters: a library still on com.plexapp.agents.thetvdb
+        needs different GUID parsing to a modern plex:// one, and it is not
+        otherwise visible without inspecting a series by hand.
+        """
+        data = await self._get("/library/sections")
+        directories = (data or {}).get("MediaContainer", {}).get("Directory", []) or []
+        return [
+            {
+                "id": int(d["key"]),
+                "title": d.get("title") or f"Section {d['key']}",
+                "type": d.get("type"),
+                "agent": d.get("agent") or "unknown",
+            }
+            for d in directories
+        ]
+
     async def tv_section_ids(self) -> list[int]:
         """Every library section of type "show". Used when PLEX_TV_SECTIONS is blank."""
         data = await self._get("/library/sections")

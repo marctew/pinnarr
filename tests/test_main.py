@@ -51,7 +51,7 @@ def test_health_is_degraded_when_the_scheduler_is_not_running(db, monkeypatch):
     assert body["status"] == "degraded"
 
 
-def test_build_scheduler_populates_the_registry():
+def test_build_scheduler_populates_the_registry(db):
     build_scheduler()
     assert set(REGISTRY) >= EXPECTED_JOBS
 

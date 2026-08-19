@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.config import get_settings
+from app.config import get_bootstrap
 
 log = logging.getLogger(__name__)
 
@@ -27,8 +27,9 @@ def utcnow() -> str:
 
 
 def connect() -> sqlite3.Connection:
-    settings = get_settings()
-    path = Path(settings.database_path)
+    # Bootstrap, not get_settings(): the settings live in this database, so
+    # asking them where the database is would recurse forever.
+    path = Path(get_bootstrap().database_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(path, timeout=15.0)
@@ -119,6 +120,12 @@ def get_setting(key: str, default: str | None = None) -> str | None:
     with session() as conn:
         row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
+
+
+def all_settings() -> dict[str, str]:
+    """Every stored setting. Backs the settings layer in app.config."""
+    with session() as conn:
+        return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings")}
 
 
 def set_setting(key: str, value: str) -> None:

@@ -1,9 +1,11 @@
 # Pinnarr — Design Spec
 
-**v0.2 — 19 August 2026**
+**v0.3 — 19 August 2026**
 *Self-hosted release calendar for the shows you actually care about.*
 
 *Changes since v0.1: added season outlook (§10), faceted library filtering and bulk pin (§11), TMDB as a data source, resolved open question 4.*
+
+*Changes since v0.2: configuration moved from environment variables to a database-backed admin panel (§15), with connection tests that resolve open questions 2 and 3 at runtime.*
 
 ---
 
@@ -273,6 +275,9 @@ A flat alphabetical poster grid is fine at 40 series and miserable at 400. Facet
 
 ```
 GET   /                          Calendar view (month grid + 14-day agenda)
+GET   /settings                  Admin panel — all configuration
+POST  /settings                  Save the panel; reschedules if timing changed
+POST  /api/settings/test/{svc}   Connection test against saved settings
 GET   /library                   Poster grid; facets per §11 as query params
 POST  /api/series/{id}/pin       HTMX toggle, returns updated card fragment
 POST  /api/series/{id}/unpin
@@ -378,46 +383,55 @@ Webhook rather than polling means it's instant and costs nothing. The nightly `r
 
 ## 15. Configuration
 
-All via environment. `.env` is gitignored from the first commit; `.env.example` is committed with placeholders.
+**Configuration lives in the database and is edited in the admin panel at
+`/settings`.** v0.1 of this spec put everything in environment variables; that
+is no longer true, and the reasoning is worth recording.
+
+An `.env` file means SSHing into the LXC to change a token, and it means the
+app can never help you fill it in. The panel can: it tests each connection on
+demand, and the Plex test enumerates your libraries so section IDs are ticked
+rather than guessed. This is also how the rest of the stack behaves — Sonarr,
+Radarr and Tautulli all keep configuration in their own store behind a
+settings UI — so it is the least surprising option on a box that already runs
+them.
+
+**Two things stay in the environment, because they must:**
 
 ```ini
-# ── Pinnarr ──────────────────────────────────────
-PINNARR_BASE_URL=http://pinnarr.lan:8737
-TZ=Europe/London
 DATABASE_PATH=/data/pinnarr.db
-WEBHOOK_SECRET=                      # generate: openssl rand -hex 24
-
-# ── Plex ─────────────────────────────────────────
-PLEX_URL=http://192.168.x.x:32400
-PLEX_TOKEN=
-PLEX_TV_SECTIONS=                    # comma-separated, e.g. 2,5
-
-# ── Sonarr ───────────────────────────────────────
-SONARR_URL=http://192.168.x.x:8989
-SONARR_API_KEY=
-
-# ── Tautulli ─────────────────────────────────────
-TAUTULLI_URL=http://192.168.x.x:8181
-TAUTULLI_API_KEY=
-
-# ── TMDB (season outlook) ────────────────────────
-TMDB_API_KEY=
-
-# ── Radarr (v1.5, off) ───────────────────────────
-RADARR_ENABLED=false
-RADARR_URL=
-RADARR_API_KEY=
-
-# ── Notifications ────────────────────────────────
-NTFY_URL=https://ntfy.sh
-NTFY_TOPIC=
-NTFY_TOKEN=                          # only if your topic is protected
-NOTIFY_ON_ARRIVAL=true
-DIGEST_ENABLED=true
-DIGEST_CRON=0 8 * * 1
+LOG_LEVEL=INFO
 ```
 
-**Security note.** `PLEX_TOKEN` grants full read access to your library and is long-lived. It must never reach the repo. `.env` should be `chmod 600` on the LXC.
+`DATABASE_PATH` cannot live in the database — the app has to find and open the
+file before it can read a single setting out of it. `LOG_LEVEL` is read while
+logging is being configured, which happens before the first query. Everything
+else is panel-owned, and the environment is **not** consulted for it: setting
+`PLEX_URL` in `.env` has no effect at all.
+
+This split is enforced in code rather than by convention. `app.config` exposes
+`get_bootstrap()` (env, used only by `app.db`) and `get_settings()` (database,
+used by everything else), so there is no path by which a panel-owned field can
+be read from the environment by accident.
+
+**Cache invalidation.** `get_settings()` is memoised, since it is called on
+every job run and every request. `save_settings()` clears it. Anything holding
+a `Settings` instance across a save is holding a stale one — the clients avoid
+this by reading settings in `__init__` and being constructed per job run.
+
+**Rescheduling.** `tz`, `digest_enabled` and `digest_cron` are baked into the
+cron triggers when the scheduler is built, so saving any of them rebuilds the
+scheduler. Without that the new schedule sits in the database doing nothing.
+
+**Secrets.** Tokens are never rendered into the settings page — the form only
+learns whether each one is set, and an empty password box means "keep what is
+stored" rather than "clear it". The corresponding cost is that `PLEX_TOKEN` now
+lives in `pinnarr.db` instead of a `chmod 600` file. The database is on a bind
+mount and should carry the file permissions the `.env` used to.
+
+**Still open:** the panel has no authentication, matching the rest of the app.
+That is defensible on a trusted LAN and indefensible the moment Pinnarr is
+exposed to the internet. Anyone doing the latter needs to put a reverse proxy
+with auth in front of it. See §17.
 
 ## 16. Deployment
 
@@ -449,12 +463,13 @@ services:
 ## 17. Open questions and risks
 
 1. **Sonarr webhook payload isn't documented** in the Servarr wiki. Rather than guess the schema, use the **Test** button on a Webhook connection in Sonarr pointed at Pinnarr, and we'll log the raw body and write the parser against reality. Until then the handler is defensive: unknown shape → log, don't crash.
-2. **Plex TV section IDs** — need yours. There may be more than one if anime has its own library.
-3. **Which Plex agent** your TV library uses (modern `plex://` vs legacy `com.plexapp.agents.*`). One series' metadata answers it.
+2. **Plex TV section IDs** — *resolved by tooling.* The Plex connection test in the admin panel lists every library with its ID, so these are ticked rather than discovered.
+3. **Which Plex agent** your TV library uses — *resolved by tooling.* The same connection test reports each library's agent and flags legacy ones explicitly.
 4. **TMDB status enum** — the values in §10 (`Returning Series`, `Ended`, `Canceled`, `In Production`, `Planned`, `Pilot`) are from memory; TMDB's own docs don't publish the list cleanly. Confirm against the live API during build and treat unknown values as `unknown` rather than crashing.
 5. **Outlook thresholds** (9 months for hiatus, 18 months for dormant) are a first guess. They're in `settings` so they're tunable without a redeploy once you see how they behave against your actual library.
 6. **Future seasons often have no dates.** TVDB won't have S4 dates until the network announces. Mitigated by the `announced` outlook, not solvable.
-7. **Timezones.** Always render from `air_date_utc`. Sonarr's `airDate` field is network-local and will put US shows on the wrong UK day.
+7. **The admin panel is unauthenticated**, like the rest of the app. Fine on a trusted LAN; put a reverse proxy with auth in front of it before exposing Pinnarr to the internet, since the panel now reads and writes your tokens.
+8. **Timezones.** Always render from `air_date_utc`. Sonarr's `airDate` field is network-local and will put US shows on the wrong UK day.
 
 *Resolved since v0.1: shows in Plex but not in Sonarr — TMDB is now a first-class source, so these get status and outlook. They still won't get per-episode air dates, since TMDB's episode data is thinner than TVDB's; if that turns out to matter, TVmaze's `/shows/{id}/episodes` is the top-up.*
 
