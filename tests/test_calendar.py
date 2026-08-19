@@ -232,3 +232,19 @@ def test_days_are_labelled_relative_to_today(client):
     with session() as conn:
         seed(conn, air_offset_days=1)
     assert "tomorrow" in client.get("/").text
+
+
+def test_the_month_grid_is_a_grid_not_a_table(client):
+    """A table sizes columns to their content, so a long show name widened
+    the column and the ellipsis never engaged."""
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    body = client.get("/").text
+    assert '<div class="month-grid">' in body
+    assert "<table" not in body
+
+
+def test_rows_show_the_air_time(client):
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    assert '<span class="time">' in client.get("/").text

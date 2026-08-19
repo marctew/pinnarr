@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Calendar · Pinnarr{% endblock %}
 {% block nav_calendar %}active{% endblock %}
+{% block main_class %}wide{% endblock %}
 
 {% macro ep_row(ep) %}
   <li class="ep state-{{ ep.state }}">
@@ -11,6 +12,7 @@
       <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
       {% if ep.title %}<span class="eptitle">{{ ep.title }}</span>{% endif %}
     </span>
+    <span class="time">{{ ep.air_local.strftime('%H:%M') if ep.air_local }}</span>
     <span class="code">{{ ep.code }}</span>
     <span class="pill">{{ ep.mark }} {{ ep.label }}</span>
   </li>
@@ -38,6 +40,9 @@
 <h1>Next 14 days</h1>
 <p class="lede">{{ pinned_total }} shows pinned.</p>
 
+<div class="cal">
+<div class="cal-main">
+
 {% if agenda %}
   {% for day, eps in agenda %}{{ day_group(day, eps) }}{% endfor %}
 {% else %}
@@ -53,37 +58,40 @@
   <ul class="eps flat">{% for ep in overdue %}{{ ep_row(ep) }}{% endfor %}</ul>
 {% endif %}
 
-<h2 class="section">
-  <a class="nav" href="?month={{ prev_month }}">‹</a>
-  {{ month_label }}
-  <a class="nav" href="?month={{ next_month }}">›</a>
-</h2>
-<table class="month">
-  <thead><tr>{% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th>{{ d }}</th>{% endfor %}</tr></thead>
-  <tbody>
-    {% for week in weeks %}
-      <tr>
-        {% for cell in week %}
-          <td class="{{ 'dim' if not cell.in_month }} {{ 'today' if cell.is_today }}">
-            <span class="num">{{ cell.date.day }}</span>
-            {% for item in cell.names[:3] %}
-              <a class="cell-show state-{{ item.state }}" href="/series/{{ item.id }}"
-                 title="{{ item.title }} {{ item.code }}">{{ item.title }}</a>
-            {% endfor %}
-            {% if cell.count > 3 %}<span class="more">+{{ cell.count - 3 }} more</span>{% endif %}
-          </td>
-        {% endfor %}
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
 <h2 class="section">{{ month_heading }}</h2>
 {% if month_episodes %}
   {% for day, eps in month_episodes %}{{ day_group(day, eps) }}{% endfor %}
 {% else %}
   <p class="empty">{{ month_empty }}</p>
 {% endif %}
+
+</div>
+<aside class="cal-side">
+
+<h2 class="section">
+  <a class="nav" href="?month={{ prev_month }}">‹</a>
+  {{ month_label }}
+  <a class="nav" href="?month={{ next_month }}">›</a>
+</h2>
+<div class="month">
+  <div class="dow-head">
+    {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<span>{{ d }}</span>{% endfor %}
+  </div>
+  <div class="month-grid">
+    {% for week in weeks %}
+      {% for cell in week %}
+        <div class="cell {{ 'dim' if not cell.in_month }} {{ 'today' if cell.is_today }}">
+          <span class="num">{{ cell.date.day }}</span>
+          {% for item in cell.names[:3] %}
+            <a class="cell-show state-{{ item.state }}" href="/series/{{ item.id }}"
+               title="{{ item.title }} {{ item.code }}">{{ item.title }}</a>
+          {% endfor %}
+          {% if cell.count > 3 %}<span class="more">+{{ cell.count - 3 }} more</span>{% endif %}
+        </div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</div>
 
 {% if announced %}
   <h2 class="section">Announced, no dates yet</h2>
@@ -105,6 +113,9 @@
     </p>
   </details>
 {% endif %}
+
+</aside>
+</div>
 
 {% endif %}
 {% endblock %}
