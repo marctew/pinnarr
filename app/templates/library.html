@@ -73,15 +73,18 @@
     <div class="grid">
       {% for s in series %}
         <article class="card {{ 'is-pinned' if s['pinned'] }}" id="card-{{ s['id'] }}">
-          <a class="poster" href="/series/{{ s['id'] }}">
-            <img src="/poster/{{ s['id'] }}" alt="{{ s['title'] }}" loading="lazy"
-                 width="200" height="300">
-          </a>
-          <button type="button" class="pin" onclick="togglePin({{ s['id'] }})"
-                  aria-pressed="{{ 'true' if s['pinned'] else 'false' }}"
-                  title="{{ 'Unpin' if s['pinned'] else 'Pin' }} {{ s['title'] }}">
-            <span class="glyph">📌</span><span class="word">{{ 'Pinned' if s['pinned'] else 'Pin' }}</span>
-          </button>
+          <div class="thumb">
+            <a class="poster" href="/series/{{ s['id'] }}">
+              <img src="/poster/{{ s['id'] }}" alt="{{ s['title'] }}" loading="lazy"
+                   width="200" height="300">
+            </a>
+            <button type="button" class="pin" onclick="togglePin({{ s['id'] }})"
+                    aria-pressed="{{ 'true' if s['pinned'] else 'false' }}"
+                    title="{{ 'Unpin' if s['pinned'] else 'Pin' }} {{ s['title'] }}">
+              <span class="glyph">📌</span>
+              <span class="sr">{{ 'Pinned' if s['pinned'] else 'Pin' }} {{ s['title'] }}</span>
+            </button>
+          </div>
           <h4><a href="/series/{{ s['id'] }}">{{ s['title'] }}</a>{% if s['year'] %}
             <span class="year">{{ s['year'] }}</span>{% endif %}</h4>
           <p class="badge outlook-{{ s['outlook'] or 'unknown' }}">{{ outlook_badge(s['outlook']) }}</p>
@@ -119,7 +122,7 @@
     const btn = card.querySelector('.pin');
     btn.setAttribute('aria-pressed', String(data.pinned));
     btn.title = (data.pinned ? 'Unpin' : 'Pin');
-    btn.querySelector('.word').textContent = data.pinned ? 'Pinned' : 'Pin';
+    btn.querySelector('.sr').textContent = (data.pinned ? 'Pinned' : 'Pin');
     document.getElementById('pinned-total').textContent = data.pinned_total;
   }
 

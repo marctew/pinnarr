@@ -234,3 +234,17 @@ def test_the_poster_links_to_the_show_and_the_pin_is_its_own_control(client):
     body = client.get("/library").text
     assert 'class="poster" href="/series/' in body
     assert 'class="pin" onclick="togglePin(' in body
+
+
+def test_the_pin_sits_inside_the_thumbnail_not_the_card(client):
+    """Anchored to the card, the pin drifts onto the title as soon as one
+    wraps to two lines — which most of them do."""
+    body = client.get("/library").text
+    thumb = body.split('<div class="thumb">')[1].split("</div>")[0]
+    assert 'class="pin"' in thumb
+
+
+def test_the_pin_button_still_announces_itself_without_visible_text(client):
+    body = client.get("/library").text
+    assert 'aria-pressed=' in body
+    assert '<span class="sr">' in body
