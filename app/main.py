@@ -9,6 +9,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from hmac import compare_digest
 from math import ceil
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from app import __version__, auth, labels
+from app import webhook as hooks
 from app.config import (
     SCHEDULING_FIELDS,
     SECRET_FIELDS,
@@ -46,6 +48,7 @@ from app.repo import (
     facet_counts,
     genres_for,
     get_series,
+    is_pinned_by,
     latest_bulk_batch,
     matching_ids,
     overdue_episodes,
@@ -55,6 +58,7 @@ from app.repo import (
     query_series,
     section_titles,
     series_episodes,
+    set_notify,
     set_pinned,
     undo_bulk_pin,
 )
@@ -130,7 +134,9 @@ _job_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 #: Reachable without a session. Everything else needs one.
-PUBLIC_PATHS = frozenset({"/login", "/setup", "/healthz"})
+#: Sonarr cannot log in, so the webhook is deliberately outside the session
+#: gate and authenticated by its own shared secret instead.
+PUBLIC_PATHS = frozenset({"/login", "/setup", "/healthz", "/hooks/sonarr"})
 
 #: Admin-only prefixes. Syncing rewrites data everyone sees, so it belongs
 #: here rather than being reachable by any signed-in account.
@@ -390,6 +396,67 @@ async def users_action(request: Request):
                 return back("That is the only admin left.", ok=False)
             auth.set_role(conn, target, role)
     return back()
+
+
+@app.post("/hooks/sonarr")
+async def sonarr_webhook(request: Request) -> JSONResponse:
+    """Sonarr's On Import / On Upgrade connection.
+
+    Always answers 200 once the secret checks out. Sonarr disables a
+    connection that keeps failing, so a parser problem must not be reported
+    as an HTTP error — it is recorded and shown in the panel instead.
+    """
+    secret = get_settings().webhook_secret
+    if not secret:
+        raise HTTPException(status_code=503, detail="no webhook secret configured")
+    if not compare_digest(request.query_params.get("secret", ""), secret):
+        log.warning("webhook rejected: bad secret from %s", request.client.host if request.client else "?")
+        raise HTTPException(status_code=403, detail="bad secret")
+
+    raw = await request.body()
+    payload = hooks.payload_from(raw)
+    text = raw.decode("utf-8", "replace")
+
+    if payload is None:
+        hooks.record("unparseable", False, "body was not JSON", text)
+        return JSONResponse({"ok": False, "detail": "body was not JSON"})
+
+    try:
+        detail = await hooks.handle(payload, text)
+    except Exception as exc:  # noqa: BLE001 — never hand Sonarr a 500
+        log.exception("webhook handler failed")
+        hooks.record("error", False, f"{type(exc).__name__}: {exc}", text)
+        return JSONResponse({"ok": False, "detail": "handler error, logged"})
+
+    return JSONResponse({"ok": True, "detail": detail})
+
+
+@app.get("/settings/webhook")
+async def webhook_page(request: Request):
+    settings = get_settings()
+    base = settings.pinnarr_base_url.rstrip("/")
+    url = (
+        f"{base}/hooks/sonarr?secret={settings.webhook_secret}"
+        if settings.webhook_secret
+        else None
+    )
+    return templates.TemplateResponse(
+        request, "webhook.html", {"url": url, "deliveries": hooks.recent()}
+    )
+
+
+@app.post("/api/series/{series_id}/notify")
+async def series_notify(request: Request, series_id: int) -> JSONResponse:
+    """Per-series notification opt-out, per user. SPEC §12."""
+    form = await request.form()
+    wanted = str(form.get("notify", "true")).lower() not in ("false", "0", "off")
+    user_id = int(request.state.user["id"])
+
+    with session() as conn:
+        if not is_pinned_by(conn, user_id, series_id):
+            raise HTTPException(status_code=404, detail="you have not pinned that series")
+        set_notify(conn, user_id, series_id, wanted)
+    return JSONResponse({"id": series_id, "notify": wanted})
 
 
 @app.get("/settings/jobs")

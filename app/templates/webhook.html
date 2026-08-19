@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Webhook · Pinnarr{% endblock %}
+{% block nav_settings %}active{% endblock %}
+{% block content %}
+<h1>Sonarr webhook</h1>
+<p class="lede">Arrivals push within seconds of Sonarr importing them. Without
+  this, the nightly reconcile job is the only path and a notification can be up
+  to a day late. <a href="/settings">Back to settings</a>.</p>
+
+{% if url %}
+  <fieldset>
+    <legend>Connection URL</legend>
+    <p class="hint">In Sonarr: <strong>Settings → Connect → + → Webhook</strong>.
+      Method POST, and tick <strong>On Import</strong> and <strong>On Upgrade</strong>.</p>
+    <label>URL
+      <input type="text" value="{{ url }}" readonly onclick="this.select()">
+      <p class="hint">This contains your webhook secret — treat it like a password.</p>
+    </label>
+  </fieldset>
+{% else %}
+  <p class="flash bad">No webhook secret set, so the receiver is disabled and
+    returns 503. Set one in <a href="/settings">Settings</a> — generate it with
+    <code>openssl rand -hex 24</code>.</p>
+{% endif %}
+
+<h2 class="section">Recent deliveries</h2>
+{% if deliveries %}
+  <p class="hint">Sonarr's payload shape isn't documented, so every delivery is
+    kept with its raw body. Press <strong>Test</strong> on the Sonarr connection
+    and it will appear here.</p>
+  <table class="users jobs">
+    <thead><tr><th>When</th><th>Event</th><th>Result</th></tr></thead>
+    <tbody>
+      {% for d in deliveries %}
+        <tr>
+          <td class="when">{{ d['received_at'][:16].replace('T', ' ') }}</td>
+          <td><code>{{ d['event_type'] }}</code></td>
+          <td class="detail {{ '' if d['handled'] else 'bad' }}">
+            {{ d['detail'] }}
+            <details><summary>raw</summary><pre>{{ d['body'] }}</pre></details>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="empty">Nothing received yet. Once the connection is saved in Sonarr,
+    press its Test button and the payload will show up here.</p>
+{% endif %}
+{% endblock %}

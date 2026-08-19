@@ -292,6 +292,8 @@ makes every unticked value read zero, which looks like a bug and is useless.
 ```
 GET   /                          Calendar view (month grid + 14-day agenda)
 GET   /series/{id}               Per-series page: metadata, episodes, pin toggle
+GET   /settings/jobs             Sync jobs, last result, run now (admin)
+GET   /settings/webhook          Connection URL and recent deliveries (admin)
 GET   /settings                  Admin panel — all configuration
 POST  /settings                  Save the panel; reschedules if timing changed
 POST  /api/settings/test/{svc}   Connection test against saved settings
@@ -480,7 +482,7 @@ services:
 
 ## 17. Open questions and risks
 
-1. **Sonarr webhook payload isn't documented** in the Servarr wiki. Rather than guess the schema, use the **Test** button on a Webhook connection in Sonarr pointed at Pinnarr, and we'll log the raw body and write the parser against reality. Until then the handler is defensive: unknown shape → log, don't crash.
+1. **Sonarr webhook payload isn't documented** in the Servarr wiki — *handled, not solved.* The receiver is written to be wrong safely: it acknowledges everything once the secret checks out, records every delivery with its raw body, and shows them at `/settings/webhook`. Press **Test** in Sonarr and the real shape is there to read. It must never return 5xx for a parse problem — Sonarr disables a connection that keeps failing, so reporting one bad delivery that way would take the feature down permanently.
 2. **Plex TV section IDs** — *resolved by tooling.* The Plex connection test in the admin panel lists every library with its ID, so these are ticked rather than discovered.
 3. **Which Plex agent** your TV library uses — *resolved by tooling.* The same connection test reports each library's agent and flags legacy ones explicitly.
 4. **TMDB status enum** — the values in §10 (`Returning Series`, `Ended`, `Canceled`, `In Production`, `Planned`, `Pilot`) are from memory; TMDB's own docs don't publish the list cleanly. Confirm against the live API during build and treat unknown values as `unknown` rather than crashing.
