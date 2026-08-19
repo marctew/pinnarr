@@ -30,6 +30,9 @@
         <a class="ext" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.name }} ↗</a>
       {% endfor %}
     </p>
+    {% for reason in missing_links %}
+      <p class="hint">{{ reason }}</p>
+    {% endfor %}
 
     {% if s['overview'] %}<p class="overview">{{ s['overview'] }}</p>{% endif %}
 

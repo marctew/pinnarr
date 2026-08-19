@@ -21,6 +21,7 @@ from app.clients.sonarr import SonarrClient
 from app.clients.tautulli import TautulliClient
 from app.clients.tmdb import TmdbClient
 from app.config import get_settings
+from app.db import set_setting
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +45,19 @@ async def _test_plex() -> dict[str, Any]:
     if not s.plex_configured:
         return _fail("No URL or token saved yet.")
 
-    sections = await PlexClient().sections()
+    client = PlexClient()
+
+    # Deep links need the server's own id. Grabbing it here means a failed
+    # link is one Test click away from fixed, rather than waiting for 03:00.
+    machine_ok = False
+    try:
+        if machine_id := await client.machine_identifier():
+            set_setting("plex_machine_id", machine_id)
+            machine_ok = True
+    except UpstreamError as exc:
+        log.warning("machine identifier unavailable: %s", exc)
+
+    sections = await client.sections()
     shows = [x for x in sections if x["type"] == "show"]
     if not shows:
         return _fail(f"Connected, but none of the {len(sections)} libraries hold TV shows.")
@@ -54,6 +67,8 @@ async def _test_plex() -> dict[str, Any]:
     if legacy:
         names = ", ".join(x["title"] for x in legacy)
         message += f" Note: {names} still uses a legacy metadata agent."
+    if not machine_ok:
+        message += " Could not read the server id, so links into Plex stay hidden."
     return _ok(message, sections=shows)
 
 

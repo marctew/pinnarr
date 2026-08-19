@@ -51,3 +51,25 @@ def externals(row: Any) -> list[dict[str, str]]:
     if row["imdb_id"]:
         out.append({"name": "IMDb", "url": f"https://www.imdb.com/title/{row['imdb_id']}/"})
     return out
+
+
+def missing_links(row: Any) -> list[str]:
+    """Why a link you might expect isn't there.
+
+    A button that is simply absent is indistinguishable from a feature that
+    does not exist, which is exactly how this looked the first time it failed.
+    """
+    settings = get_settings()
+    reasons: list[str] = []
+
+    if settings.plex_url and row["plex_rating_key"] and not get_setting("plex_machine_id"):
+        reasons.append(
+            "The Plex link needs the server's id, which is read during a sync — "
+            "hit Test Plex in Settings, or run the plex_library job."
+        )
+    if settings.sonarr_url and row["sonarr_id"] and not row["title_slug"]:
+        reasons.append(
+            "The Sonarr link needs the series slug, which arrives with the "
+            "sonarr_series job."
+        )
+    return reasons

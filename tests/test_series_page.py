@@ -134,3 +134,37 @@ def test_a_plex_link_needs_the_machine_id_not_just_a_rating_key(client):
     with session() as conn:
         sid = seed(conn, plex_rating_key="4521")
     assert "/web/index.html" not in client.get(f"/series/{sid}").text
+
+
+def test_a_missing_plex_link_explains_itself(client):
+    """A button that is simply absent looks like a feature that was never
+    built. This is the exact failure that shipped."""
+    from app.config import save_settings
+
+    save_settings({"plex_url": "http://plex.lan:32400"})
+    with session() as conn:
+        sid = seed(conn, plex_rating_key="4521")
+    body = client.get(f"/series/{sid}").text
+    assert "Test Plex in Settings" in body
+
+
+def test_a_missing_sonarr_link_explains_itself(client):
+    from app.config import save_settings
+
+    save_settings({"sonarr_url": "http://sonarr.lan:8989"})
+    with session() as conn:
+        sid = seed(conn, sonarr_id=42, title_slug=None)
+    assert "needs the series slug" in client.get(f"/series/{sid}").text
+
+
+def test_nothing_is_explained_once_the_links_work(client):
+    from app.config import save_settings
+    from app.db import set_setting
+
+    save_settings({"plex_url": "http://plex.lan:32400", "sonarr_url": "http://sonarr.lan:8989"})
+    set_setting("plex_machine_id", "abc123")
+    with session() as conn:
+        sid = seed(conn, plex_rating_key="4521", sonarr_id=42, title_slug="severance")
+    body = client.get(f"/series/{sid}").text
+    assert "Test Plex in Settings" not in body
+    assert "needs the series slug" not in body

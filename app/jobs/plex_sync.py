@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 
 from app.clients.plex import PlexClient
@@ -29,10 +28,15 @@ async def sync_plex_library() -> str:
         record_sections(conn, available)
 
     # Cached rather than fetched per page render: it never changes, and a
-    # dead Plex shouldn't stop a series page from loading.
-    with contextlib.suppress(Exception):
+    # dead Plex shouldn't stop a series page from loading. Failure is logged
+    # rather than swallowed — a silently missing link is unde­buggable.
+    try:
         if machine_id := await client.machine_identifier():
             set_setting("plex_machine_id", machine_id)
+        else:
+            log.warning("Plex /identity returned no machineIdentifier; deep links disabled")
+    except Exception as exc:  # noqa: BLE001 — never fail the walk over a link
+        log.warning("could not read the Plex machine identifier, deep links disabled: %s", exc)
 
     sections = settings.plex_tv_sections
     if not sections:

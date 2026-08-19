@@ -33,7 +33,7 @@ from app.db import last_runs, migrate, session
 from app.episodes import decorate, episode_state
 from app.health import test_service
 from app.jobs import REGISTRY, build_scheduler
-from app.links import externals
+from app.links import externals, missing_links
 from app.media import poster
 from app.repo import (
     PAGE_SIZE,
@@ -844,6 +844,7 @@ async def series_detail(request: Request, series_id: int):
             "s": row,
             "genres": genres,
             "links": externals(row),
+            "missing_links": missing_links(row),
             "episodes": [decorate(e, now=now, tz=str(tz)) for e in episodes],
         },
     )
