@@ -68,7 +68,7 @@
 
 {% if seasons %}
   {% for number, eps in seasons %}
-    <details class="season" {{ 'open' if loop.first }}>
+    <details class="season" {{ 'open' if number == open_season }}>
       <summary>
         {% if number == 0 %}Specials{% else %}Season {{ number }}{% endif %}
         <span class="count">{{ eps|length }} episode{{ '' if eps|length == 1 else 's' }}</span>

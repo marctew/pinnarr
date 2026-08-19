@@ -56,6 +56,7 @@ from app.repo import (
     get_series,
     is_pinned_by,
     latest_bulk_batch,
+    latest_season,
     mark_episodes_synced,
     matching_ids,
     overdue_episodes,
@@ -1017,5 +1018,6 @@ async def series_detail(request: Request, series_id: int):
                 (number, [decorate(e, now=now, tz=str(tz)) for e in eps])
                 for number, eps in seasons
             ],
+            "open_season": latest_season(seasons),
         },
     )

@@ -798,18 +798,30 @@ def mark_episodes_synced(conn: sqlite3.Connection, series_id: int) -> None:
 def episodes_by_season(
     conn: sqlite3.Connection, series_id: int
 ) -> list[tuple[int, list[sqlite3.Row]]]:
-    """Every episode we hold, grouped by season, newest season first.
+    """Every episode we hold, grouped by season, in broadcast order.
+
+    Seasons ascend because episodes within them do, and mixing the two reads
+    as a bug. Which season is *interesting* is a separate question, answered
+    by opening the latest one rather than by reversing the list.
 
     Specials are season 0 and sort last rather than first: they are a
     footnote to a series, not the beginning of it.
     """
     rows = list(
         conn.execute(
-            "SELECT * FROM episodes WHERE series_id = ? ORDER BY season DESC, episode ASC",
+            "SELECT * FROM episodes WHERE series_id = ? ORDER BY season ASC, episode ASC",
             (series_id,),
         )
     )
     seasons: dict[int, list[sqlite3.Row]] = {}
     for row in rows:
         seasons.setdefault(int(row["season"]), []).append(row)
-    return sorted(seasons.items(), key=lambda kv: (kv[0] == 0, -kv[0]))
+    return sorted(seasons.items(), key=lambda kv: (kv[0] == 0, kv[0]))
+
+
+def latest_season(seasons: list[tuple[int, Any]]) -> int | None:
+    """The season worth expanding: the newest real one, specials aside."""
+    numbers = [n for n, _ in seasons if n != 0]
+    if numbers:
+        return max(numbers)
+    return seasons[0][0] if seasons else None

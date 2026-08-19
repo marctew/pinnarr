@@ -145,8 +145,36 @@ def test_episodes_are_grouped_into_seasons(client):
     body = client.get(f"/series/{sid}").text
     assert "Season 1" in body
     assert "Season 2" in body
-    # Newest season first, and open by default.
-    assert body.index("Season 2") < body.index("Season 1")
+    # Broadcast order, to match the episodes inside each season.
+    assert body.index("Season 1") < body.index("Season 2")
+
+
+def test_the_latest_season_is_the_one_left_open(client):
+    """Ascending order puts season 1 first, which is the least interesting
+    one — so the newest is expanded rather than the topmost."""
+    with session() as conn:
+        sid = add(conn, "Silo", days=3, sonarr_id=12)
+        for season in (1, 2, 3):
+            conn.execute(
+                "INSERT INTO episodes (series_id, season, episode, title, "
+                "air_date_utc, monitored, updated_at) VALUES (?, ?, 1, 'x', ?, 1, ?)",
+                (sid, season, "2026-01-01T00:00:00+00:00", utcnow()),
+            )
+    body = client.get(f"/series/{sid}").text
+    tag = '<details class="season" open>'
+    assert body.count(tag) == 1
+    assert "Season 3" in body.split(tag)[1].split("</summary>")[0]
+
+
+def test_a_series_of_only_specials_still_opens_something(client):
+    with session() as conn:
+        sid = add(conn, "Oddity", days=3, sonarr_id=12)
+        conn.execute(
+            "INSERT INTO episodes (series_id, season, episode, title, "
+            "air_date_utc, monitored, updated_at) VALUES (?, 0, 1, 'x', ?, 1, ?)",
+            (sid, "2026-01-01T00:00:00+00:00", utcnow()),
+        )
+    assert "<details class=\"season\" open>" in client.get(f"/series/{sid}").text
 
 
 def test_specials_sort_last_rather_than_first(client):
