@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from app.clients.plex import PlexClient
 from app.config import get_settings
-from app.db import session
+from app.db import session, set_setting
 from app.jobs import tracked
 from app.repo import record_sections, upsert_from_plex
 
@@ -26,6 +27,12 @@ async def sync_plex_library() -> str:
     available = await client.sections()
     with session() as conn:
         record_sections(conn, available)
+
+    # Cached rather than fetched per page render: it never changes, and a
+    # dead Plex shouldn't stop a series page from loading.
+    with contextlib.suppress(Exception):
+        if machine_id := await client.machine_identifier():
+            set_setting("plex_machine_id", machine_id)
 
     sections = settings.plex_tv_sections
     if not sections:

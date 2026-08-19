@@ -254,7 +254,7 @@
   .cell .more { font-size: 10px; color: var(--muted); padding-left: .25rem; }
 
   /* ── Calendar layout ── */
-  .cal { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 420px); gap: 2.5rem; align-items: start; }
+  .cal { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr); gap: 2.5rem; align-items: start; }
   .cal-main { min-width: 0; }
   .cal-side { min-width: 0; position: sticky; top: 1rem; }
   .cal-side .section:first-child { margin-top: 0; }
@@ -284,7 +284,12 @@
   .badge-lg.outlook-dormant { color: var(--warn); border-color: var(--warn); }
   .badge-lg.outlook-cancelled { color: var(--bad); border-color: var(--bad); }
   .detail .next { color: var(--muted); font-size: 13px; margin-left: .5rem; }
-  .detail .actions { margin: 1rem 0; }
+  .detail .actions { margin: 1rem 0; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+  .ext {
+    font-size: 13px; padding: .4rem .7rem; border-radius: 6px; text-decoration: none;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  .ext:hover { border-color: var(--accent); color: var(--accent); }
   .facts { display: grid; grid-template-columns: 8rem 1fr; gap: .3rem 1rem; font-size: 13px; margin: 0; }
   .facts dt { color: var(--muted); }
   .facts dd { margin: 0; }

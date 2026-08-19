@@ -97,6 +97,11 @@ class PlexClient:
             self.service, "GET", f"{self.base}{path}", headers=self._headers, params=params
         )
 
+    async def machine_identifier(self) -> str | None:
+        """The server's own id, needed to build a link into the Plex web app."""
+        data = await self._get("/identity")
+        return (data or {}).get("MediaContainer", {}).get("machineIdentifier")
+
     async def sections(self) -> list[dict[str, Any]]:
         """Every library section, with the metadata agent behind it.
 

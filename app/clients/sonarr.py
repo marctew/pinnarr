@@ -26,6 +26,8 @@ class SonarrSeries:
     next_airing: str | None
     previous_airing: str | None
     latest_season: int | None
+    # Defaulted so existing constructions stay valid; Sonarr always sends it.
+    title_slug: str | None = None
     seasons: list[int] = field(default_factory=list)
 
 
@@ -56,6 +58,7 @@ def _series_from_payload(item: dict[str, Any]) -> SonarrSeries:
         tmdb_id=item.get("tmdbId") or None,
         imdb_id=item.get("imdbId") or None,
         title=item.get("title") or "(untitled)",
+        title_slug=item.get("titleSlug"),
         sort_title=item.get("sortTitle"),
         year=item.get("year") or None,
         status=item.get("status"),

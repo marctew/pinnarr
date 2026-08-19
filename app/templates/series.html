@@ -26,6 +26,9 @@
               onclick="togglePin({{ s['id'] }})">
         {{ 'Pinned' if s['pinned'] else 'Pin this show' }}
       </button>
+      {% for link in links %}
+        <a class="ext" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.name }} ↗</a>
+      {% endfor %}
     </p>
 
     {% if s['overview'] %}<p class="overview">{{ s['overview'] }}</p>{% endif %}

@@ -91,3 +91,39 @@ def test_the_library_links_to_it(client):
     with session() as conn:
         sid = seed(conn)
     assert f'href="/series/{sid}"' in client.get("/library").text
+
+
+def test_external_links_appear_when_the_ids_exist(client):
+    from app.config import save_settings
+    from app.db import set_setting
+
+    save_settings({"sonarr_url": "http://sonarr.lan:8989", "plex_url": "http://plex.lan:32400"})
+    set_setting("plex_machine_id", "abc123")
+    with session() as conn:
+        sid = seed(conn, imdb_id="tt11280740", tmdb_id=95396,
+                   title_slug="severance", plex_rating_key="4521")
+    body = client.get(f"/series/{sid}").text
+    assert "http://sonarr.lan:8989/series/severance" in body
+    assert "abc123" in body
+    assert "thetvdb.com/dereferrer/series/371980" in body
+    assert "themoviedb.org/tv/95396" in body
+    assert "imdb.com/title/tt11280740/" in body
+
+
+def test_no_link_is_offered_when_the_id_is_missing(client):
+    with session() as conn:
+        sid = seed(conn, tvdb_id=None, tmdb_id=None, imdb_id=None)
+    body = client.get(f"/series/{sid}").text
+    assert "thetvdb.com" not in body
+    assert "imdb.com" not in body
+
+
+def test_a_plex_link_needs_the_machine_id_not_just_a_rating_key(client):
+    """Before the first sync there is no machineIdentifier, and half a URL
+    is worse than no link."""
+    from app.config import save_settings
+
+    save_settings({"plex_url": "http://plex.lan:32400"})
+    with session() as conn:
+        sid = seed(conn, plex_rating_key="4521")
+    assert "/web/index.html" not in client.get(f"/series/{sid}").text
