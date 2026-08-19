@@ -2,13 +2,30 @@
 {% block title %}Calendar · Pinnarr{% endblock %}
 {% block nav_calendar %}active{% endblock %}
 
-{% macro episode_row(ep, show_date=True) %}
+{% macro ep_row(ep) %}
   <li class="ep state-{{ ep.state }}">
-    <span class="when">{% if show_date and ep.air_local %}{{ ep.air_local.strftime('%a') }} {{ ep.air_local.day }} {{ ep.air_local.strftime('%b') }}{% endif %}</span>
-    <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
+    <a class="art" href="/series/{{ ep.series_id }}" tabindex="-1" aria-hidden="true">
+      <img src="/poster/{{ ep.series_id }}" alt="" loading="lazy" width="36" height="54">
+    </a>
+    <span class="who">
+      <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
+      {% if ep.title %}<span class="eptitle">{{ ep.title }}</span>{% endif %}
+    </span>
     <span class="code">{{ ep.code }}</span>
-    <span class="state">{{ ep.mark }} {{ ep.label }}</span>
+    <span class="pill">{{ ep.mark }} {{ ep.label }}</span>
   </li>
+{% endmacro %}
+
+{% macro day_group(day, eps) %}
+  <section class="day">
+    <h3 class="day-head">
+      <span class="dow">{{ day.strftime('%a') }}</span>
+      <span class="dnum">{{ day.day }}</span>
+      <span class="mon">{{ day.strftime('%b') }}</span>
+      <span class="rel">{{ relative_day(day, today) }}</span>
+    </h3>
+    <ul class="eps">{% for ep in eps %}{{ ep_row(ep) }}{% endfor %}</ul>
+  </section>
 {% endmacro %}
 
 {% block content %}
@@ -18,37 +35,22 @@
     <a href="/library">Go and pin some</a> — that's the whole point of Pinnarr.</p>
 {% else %}
 
-<h1>Next {{ 14 }} days</h1>
+<h1>Next 14 days</h1>
 <p class="lede">{{ pinned_total }} shows pinned.</p>
 
 {% if agenda %}
-  <ul class="agenda">
-    {% for day, eps in agenda %}
-      {% for ep in eps %}
-        <li class="ep state-{{ ep.state }}">
-          <span class="when">{% if loop.first %}{{ day.strftime('%a') }} {{ day.day }} {{ day.strftime('%b') }}{% endif %}</span>
-          <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
-          <span class="code">{{ ep.code }}</span>
-          <span class="state">{{ ep.mark }} {{ ep.label }}</span>
-        </li>
-      {% endfor %}
-    {% endfor %}
-  </ul>
+  {% for day, eps in agenda %}{{ day_group(day, eps) }}{% endfor %}
 {% else %}
   <p class="empty">Nothing from your pinned shows in the next fortnight.</p>
   {% if next_up %}
     <h2 class="section">Next up</h2>
-    <ul class="agenda">
-      {% for ep in next_up %}{{ episode_row(ep) }}{% endfor %}
-    </ul>
+    <ul class="eps flat">{% for ep in next_up %}{{ ep_row(ep) }}{% endfor %}</ul>
   {% endif %}
 {% endif %}
 
 {% if overdue %}
   <h2 class="section warn">⚠ Aired, not arrived</h2>
-  <ul class="agenda">
-    {% for ep in overdue %}{{ episode_row(ep) }}{% endfor %}
-  </ul>
+  <ul class="eps flat">{% for ep in overdue %}{{ ep_row(ep) }}{% endfor %}</ul>
 {% endif %}
 
 <h2 class="section">
@@ -57,7 +59,7 @@
   <a class="nav" href="?month={{ next_month }}">›</a>
 </h2>
 <table class="month">
-  <thead><tr>{% for d in ['M','T','W','T','F','S','S'] %}<th>{{ d }}</th>{% endfor %}</tr></thead>
+  <thead><tr>{% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th>{{ d }}</th>{% endfor %}</tr></thead>
   <tbody>
     {% for week in weeks %}
       <tr>
@@ -76,21 +78,11 @@
   </tbody>
 </table>
 
+<h2 class="section">{{ month_heading }}</h2>
 {% if month_episodes %}
-  <ul class="agenda month-list">
-    {% for day, eps in month_episodes %}
-      {% for ep in eps %}
-        <li class="ep state-{{ ep.state }}">
-          <span class="when">{% if loop.first %}{{ day.strftime('%a') }} {{ day.day }}{% endif %}</span>
-          <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
-          <span class="code">{{ ep.code }}</span>
-          <span class="state">{{ ep.mark }} {{ ep.label }}</span>
-        </li>
-      {% endfor %}
-    {% endfor %}
-  </ul>
+  {% for day, eps in month_episodes %}{{ day_group(day, eps) }}{% endfor %}
 {% else %}
-  <p class="empty">Nothing from your pinned shows in {{ month_label }}.</p>
+  <p class="empty">{{ month_empty }}</p>
 {% endif %}
 
 {% if announced %}

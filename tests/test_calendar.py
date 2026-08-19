@@ -199,3 +199,36 @@ def test_the_month_grid_names_the_shows_in_each_cell(client):
     body = client.get("/").text
     assert f'href="/series/{sid}"' in body
     assert "cell-show" in body
+
+
+def test_the_agenda_does_not_repeat_itself_in_the_month_list(client):
+    """Viewing the current month, everything upcoming is already in the
+    agenda above — the month list covers what has already aired."""
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    body = client.get("/").text
+    # The grid cell's tooltip carries the code too, so count rendered rows.
+    assert body.count(">S02E07<") == 1
+    assert "Nothing of yours has aired yet this month" in body
+
+
+def test_a_past_episode_this_month_appears_under_earlier(client):
+    with session() as conn:
+        seed(conn, air_offset_days=-2, has_file=1)
+    body = client.get("/").text
+    assert "Earlier in" in body
+    assert "S02E07" in body
+
+
+def test_rows_carry_the_episode_title_and_poster(client):
+    with session() as conn:
+        sid = seed(conn, air_offset_days=3)
+    body = client.get("/").text
+    assert "Cold Harbor" in body
+    assert f'src="/poster/{sid}"' in body
+
+
+def test_days_are_labelled_relative_to_today(client):
+    with session() as conn:
+        seed(conn, air_offset_days=1)
+    assert "tomorrow" in client.get("/").text

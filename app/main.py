@@ -130,6 +130,7 @@ templates.env.globals.update(
     outlook_label=labels.outlook,
     outlook_badge=labels.outlook_badge,
     status_label=labels.sonarr_status,
+    relative_day=labels.relative_day,
     OUTLOOK=labels.OUTLOOK,
     SONARR_STATUS=labels.SONARR_STATUS,
 )
@@ -518,6 +519,20 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
             cursor += timedelta(days=1)
         weeks.append(week)
 
+    # Viewing the current month, the agenda above has already covered
+    # everything upcoming — repeating it here just makes the page longer. What
+    # it hasn't covered is what already aired, so show that instead.
+    this_month = anchor.year == today.year and anchor.month == today.month
+    month_episodes = sorted(
+        (day, eps) for day, eps in by_month.items() if not this_month or day < today
+    )
+    month_heading = f"Earlier in {anchor.strftime('%B')}" if this_month else anchor.strftime("%B %Y")
+    month_empty = (
+        "Nothing of yours has aired yet this month."
+        if this_month
+        else f"Nothing from your pinned shows in {anchor.strftime('%B %Y')}."
+    )
+
     return {
         "today": today,
         "agenda": sorted(agenda.items()),
@@ -529,7 +544,9 @@ def _calendar_context(month: str | None) -> dict[str, Any]:
         "weeks": weeks,
         # What the dots on the grid actually are — without this the month view
         # tells you something is happening and refuses to say what.
-        "month_episodes": sorted(by_month.items()),
+        "month_episodes": month_episodes,
+        "month_heading": month_heading,
+        "month_empty": month_empty,
         "next_up": upcoming[:5],
         "showing_this_month": anchor.year == today.year and anchor.month == today.month,
         "month_label": anchor.strftime("%B %Y"),

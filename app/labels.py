@@ -54,3 +54,15 @@ def outlook_badge(value: str | None) -> str:
 
 def sonarr_status(value: str | None) -> str:
     return SONARR_STATUS.get(value or "", (value or "—").capitalize())
+
+
+def relative_day(day: object, today: object) -> str:
+    """"in 3 days" rather than a date you have to subtract in your head."""
+    delta = (day - today).days  # type: ignore[operator]
+    if delta == 0:
+        return "today"
+    if delta == 1:
+        return "tomorrow"
+    if delta == -1:
+        return "yesterday"
+    return f"in {delta} days" if delta > 0 else f"{-delta} days ago"
