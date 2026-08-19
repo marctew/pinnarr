@@ -23,6 +23,8 @@ from pydantic import ValidationError
 
 from app import __version__, auth, labels
 from app import webhook as hooks
+from app.clients.http import UpstreamError
+from app.clients.sonarr import SonarrClient
 from app.config import (
     SCHEDULING_FIELDS,
     SECRET_FIELDS,
@@ -45,11 +47,16 @@ from app.repo import (
     adopt_orphaned_pins,
     bulk_pin,
     count_series,
+    discover_announced,
+    discover_counts,
+    discover_dated,
+    episodes_by_season,
     facet_counts,
     genres_for,
     get_series,
     is_pinned_by,
     latest_bulk_batch,
+    mark_episodes_synced,
     matching_ids,
     overdue_episodes,
     pinned_by_outlook,
@@ -57,10 +64,10 @@ from app.repo import (
     pinned_episodes,
     query_series,
     section_titles,
-    series_episodes,
     set_notify,
     set_pinned,
     undo_bulk_pin,
+    upsert_episode,
 )
 
 #: Shown when Plex has no artwork, or is unreachable. Inline so the grid never
@@ -923,6 +930,71 @@ async def calendar_json(
     )
 
 
+@app.get("/discover")
+async def discover(request: Request):
+    """Unpinned series with something actually coming.
+
+    A 2000-series library is mostly things you have forgotten about. Every
+    pin so far has required you to remember a show exists; this is the view
+    that does the remembering.
+    """
+    user_id = int(request.state.user["id"])
+    now, tz = _now_local()
+    soon = (now + timedelta(days=7)).isoformat()
+
+    with session() as conn:
+        this_week = discover_dated(conn, user_id, now=now.isoformat(), until=soon)
+        later = discover_dated(conn, user_id, now=soon)
+        announced = discover_announced(conn, user_id)
+        counts = discover_counts(conn, user_id, now.isoformat())
+        sections = section_titles(conn)
+
+    return templates.TemplateResponse(
+        request,
+        "discover.html",
+        {
+            "this_week": this_week,
+            "later": later,
+            "announced": announced,
+            "counts": counts,
+            "sections": sections,
+            "tz": str(tz),
+        },
+    )
+
+
+@app.post("/api/series/{series_id}/episodes")
+async def refresh_episodes(request: Request, series_id: int) -> JSONResponse:
+    """Pull the whole episode list for one series from Sonarr.
+
+    The nightly calendar sync only covers -7 to +60 days, which is right for
+    a calendar and wrong for a series page. This fills the rest in on demand
+    rather than syncing thousands of episodes nobody will look at.
+    """
+    with session() as conn:
+        row = get_series(conn, series_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="no such series")
+        sonarr_id = row["sonarr_id"]
+
+    if not sonarr_id:
+        raise HTTPException(status_code=409, detail="Sonarr does not track this series")
+    if not get_settings().sonarr_configured:
+        raise HTTPException(status_code=409, detail="Sonarr is not configured")
+
+    try:
+        episodes = await SonarrClient().episodes_for_series(int(sonarr_id))
+    except UpstreamError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    with session() as conn:
+        for episode in episodes:
+            upsert_episode(conn, series_id, episode)
+        mark_episodes_synced(conn, series_id)
+
+    return JSONResponse({"id": series_id, "episodes": len(episodes)})
+
+
 @app.get("/series/{series_id}")
 async def series_detail(request: Request, series_id: int):
     now, tz = _now_local()
@@ -930,7 +1002,7 @@ async def series_detail(request: Request, series_id: int):
         row = get_series(conn, series_id, int(request.state.user["id"]))
         if row is None:
             raise HTTPException(status_code=404, detail="no such series")
-        episodes = series_episodes(conn, series_id)
+        seasons = episodes_by_season(conn, series_id)
         genres = genres_for(conn, series_id)
 
     return templates.TemplateResponse(
@@ -941,6 +1013,9 @@ async def series_detail(request: Request, series_id: int):
             "genres": genres,
             "links": externals(row),
             "missing_links": missing_links(row),
-            "episodes": [decorate(e, now=now, tz=str(tz)) for e in episodes],
+            "seasons": [
+                (number, [decorate(e, now=now, tz=str(tz)) for e in eps])
+                for number, eps in seasons
+            ],
         },
     )

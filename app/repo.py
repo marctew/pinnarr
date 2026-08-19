@@ -722,3 +722,94 @@ def section_titles(conn: sqlite3.Connection) -> dict[int, str]:
     return {
         int(r["id"]): r["title"] for r in conn.execute("SELECT id, title FROM plex_sections")
     }
+
+
+# ── Discover ─────────────────────────────────────
+
+#: 2000 series means an unbounded discover page is a scrolling wall. These
+#: are generous enough that the cap is never the thing you notice.
+DISCOVER_LIMIT = 60
+
+
+def _unpinned(user_id: int) -> str:
+    return "NOT EXISTS (SELECT 1 FROM pins p WHERE p.series_id = s.id AND p.user_id = ?)"
+
+
+def discover_dated(
+    conn: sqlite3.Connection, user_id: int, *, now: str, until: str | None = None
+) -> list[sqlite3.Row]:
+    """Series with a dated episode coming that this user has not pinned.
+
+    The whole point of the page: a 2000-series library is a list of things
+    you have forgotten about, and a date is the strongest signal that one of
+    them is worth remembering.
+    """
+    clause = "s.next_airing > ?"
+    params: list[Any] = [user_id, now]
+    if until:
+        clause += " AND s.next_airing < ?"
+        params.append(until)
+    return list(
+        conn.execute(
+            f"SELECT s.* FROM series s WHERE {_unpinned(user_id)} "
+            f"AND s.next_airing IS NOT NULL AND {clause} "
+            "ORDER BY s.next_airing ASC LIMIT ?",
+            [*params, DISCOVER_LIMIT],
+        )
+    )
+
+
+def discover_announced(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
+    """Unpinned series with a season announced but no dates yet."""
+    return list(
+        conn.execute(
+            f"SELECT s.* FROM series s WHERE {_unpinned(user_id)} "
+            "AND s.outlook IN ('announced', 'in_production') AND s.next_airing IS NULL "
+            "ORDER BY s.last_watched_at DESC, s.sort_title ASC LIMIT ?",
+            (user_id, DISCOVER_LIMIT),
+        )
+    )
+
+
+def discover_counts(conn: sqlite3.Connection, user_id: int, now: str) -> dict[str, int]:
+    dated = conn.execute(
+        f"SELECT count(*) AS n FROM series s WHERE {_unpinned(user_id)} "
+        "AND s.next_airing IS NOT NULL AND s.next_airing > ?",
+        (user_id, now),
+    ).fetchone()["n"]
+    announced = conn.execute(
+        f"SELECT count(*) AS n FROM series s WHERE {_unpinned(user_id)} "
+        "AND s.outlook IN ('announced', 'in_production') AND s.next_airing IS NULL",
+        (user_id,),
+    ).fetchone()["n"]
+    return {"dated": int(dated), "announced": int(announced)}
+
+
+# ── Full episode guide ───────────────────────────
+
+
+def mark_episodes_synced(conn: sqlite3.Connection, series_id: int) -> None:
+    conn.execute(
+        "UPDATE series SET episodes_synced_at = ?, updated_at = ? WHERE id = ?",
+        (utcnow(), utcnow(), series_id),
+    )
+
+
+def episodes_by_season(
+    conn: sqlite3.Connection, series_id: int
+) -> list[tuple[int, list[sqlite3.Row]]]:
+    """Every episode we hold, grouped by season, newest season first.
+
+    Specials are season 0 and sort last rather than first: they are a
+    footnote to a series, not the beginning of it.
+    """
+    rows = list(
+        conn.execute(
+            "SELECT * FROM episodes WHERE series_id = ? ORDER BY season DESC, episode ASC",
+            (series_id,),
+        )
+    )
+    seasons: dict[int, list[sqlite3.Row]] = {}
+    for row in rows:
+        seasons.setdefault(int(row["season"]), []).append(row)
+    return sorted(seasons.items(), key=lambda kv: (kv[0] == 0, -kv[0]))

@@ -75,7 +75,7 @@ def test_a_series_with_no_synced_episodes_explains_itself(client):
     with session() as conn:
         sid = seed(conn)
         conn.execute("DELETE FROM episodes WHERE series_id = ?", (sid,))
-    assert "No episodes in the synced window" in client.get(f"/series/{sid}").text
+    assert "No episodes held for this series yet" in client.get(f"/series/{sid}").text
 
 
 def test_the_pin_button_reflects_current_state(client):

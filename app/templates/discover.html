@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Discover · Pinnarr{% endblock %}
+{% block nav_discover %}active{% endblock %}
+{% block main_class %}wide{% endblock %}
+
+{% macro card(s) %}
+  <article class="card" id="card-{{ s['id'] }}">
+    <div class="thumb">
+      <a class="poster" href="/series/{{ s['id'] }}">
+        <img src="/poster/{{ s['id'] }}" alt="{{ s['title'] }}" loading="lazy"
+             width="200" height="300">
+      </a>
+      <button type="button" class="pin" onclick="togglePin({{ s['id'] }})"
+              aria-pressed="false" title="Pin {{ s['title'] }}">
+        <span class="glyph">📌</span>
+        <span class="sr">Pin {{ s['title'] }}</span>
+      </button>
+    </div>
+    <h4><a href="/series/{{ s['id'] }}">{{ s['title'] }}</a></h4>
+    <p class="badge outlook-{{ s['outlook'] or 'unknown' }}">
+      {% if s['next_airing'] %}{{ s['next_airing'][:10] }}{% else %}{{ outlook_badge(s['outlook']) }}{% endif %}
+    </p>
+  </article>
+{% endmacro %}
+
+{% block content %}
+<h1>Discover</h1>
+<p class="lede">Shows in your library with something coming, that you haven't
+  pinned. {{ counts.dated }} have a date; {{ counts.announced }} more are
+  announced or filming.</p>
+
+{% if not this_week and not later and not announced %}
+  <p class="empty">Nothing unpinned has anything scheduled. Either you've pinned
+    everything worth following, or the syncs haven't run —
+    <a href="/settings/jobs">check the jobs</a>.</p>
+{% endif %}
+
+{% if this_week %}
+  <h2 class="section">Airing in the next 7 days</h2>
+  <div class="grid">{% for s in this_week %}{{ card(s) }}{% endfor %}</div>
+{% endif %}
+
+{% if later %}
+  <h2 class="section">Dated, further out</h2>
+  <div class="grid">{% for s in later %}{{ card(s) }}{% endfor %}</div>
+{% endif %}
+
+{% if announced %}
+  <h2 class="section">Announced or filming, no date yet</h2>
+  <p class="hint">Metadata says a new season is coming but nobody has scheduled
+    it. Pin now and it lands on your calendar the moment it gets a date.</p>
+  <div class="grid">{% for s in announced %}{{ card(s) }}{% endfor %}</div>
+{% endif %}
+
+<script>
+  async function togglePin(id) {
+    const card = document.getElementById('card-' + id);
+    const pinned = card.classList.contains('is-pinned');
+    const r = await fetch('/api/series/' + id + '/' + (pinned ? 'unpin' : 'pin'),
+                          { method: 'POST' });
+    if (!r.ok) return;
+    const data = await r.json();
+    card.classList.toggle('is-pinned', data.pinned);
+    const btn = card.querySelector('.pin');
+    btn.setAttribute('aria-pressed', String(data.pinned));
+    // Deliberately left in place rather than removed: a card vanishing under
+    // the cursor makes an accidental pin impossible to undo.
+    card.classList.toggle('just-pinned', data.pinned);
+  }
+</script>
+{% endblock %}

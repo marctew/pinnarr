@@ -298,6 +298,8 @@ GET   /settings                  Admin panel — all configuration
 POST  /settings                  Save the panel; reschedules if timing changed
 POST  /api/settings/test/{svc}   Connection test against saved settings
 GET   /library                   Poster grid; facets per §11 as query params
+GET   /discover                  Unpinned series with something coming
+POST  /api/series/{id}/episodes  Pull the full episode list from Sonarr
 POST  /api/series/{id}/pin       Toggle, returns {pinned, pinned_total} as JSON
 POST  /api/series/{id}/unpin
 POST  /api/series/{id}/notify    Per-series notification opt-out
@@ -529,3 +531,5 @@ reverse proxy in front.
 - Season-premiere-only mode per series (pin the show, only notify on premieres)
 - Bidirectional sync with a Plex label, so pins are visible in Plex itself
 - Per-episode air dates for non-Sonarr shows via TVmaze
+- Discover: *~~returning soon but not pinned~~* — added
+- Full episode guide on demand — added

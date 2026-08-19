@@ -51,20 +51,43 @@
   </div>
 </div>
 
-<h2 class="section">Episodes {% if episodes %}<span class="hint">— within the synced window</span>{% endif %}</h2>
-{% if episodes %}
-  <ul class="agenda">
-    {% for ep in episodes %}
-      <li class="ep state-{{ ep.state }}">
-        <span class="when">{% if ep.air_local %}{{ ep.air_local.strftime('%a') }} {{ ep.air_local.day }} {{ ep.air_local.strftime('%b') }}{% endif %}</span>
-        <span class="show">{{ ep.title or '—' }}</span>
-        <span class="code">{{ ep.code }}</span>
-        <span class="state">{{ ep.mark }} {{ ep.label }}</span>
-      </li>
-    {% endfor %}
-  </ul>
+<h2 class="section">
+  Episodes
+  {% if s['sonarr_id'] %}
+    <button type="button" class="tiny" id="load-guide" onclick="loadGuide({{ s['id'] }})">
+      {{ 'Refresh from Sonarr' if s['episodes_synced_at'] else 'Load full guide' }}
+    </button>
+  {% endif %}
+</h2>
+
+{% if not s['episodes_synced_at'] %}
+  <p class="hint">Only the synced window is here — the nightly calendar job
+    covers −7 to +60 days. Load the full guide to pull every season from Sonarr.</p>
+{% endif %}
+<p class="result" id="guide-result"></p>
+
+{% if seasons %}
+  {% for number, eps in seasons %}
+    <details class="season" {{ 'open' if loop.first }}>
+      <summary>
+        {% if number == 0 %}Specials{% else %}Season {{ number }}{% endif %}
+        <span class="count">{{ eps|length }} episode{{ '' if eps|length == 1 else 's' }}</span>
+        <span class="have">{{ eps|selectattr('state', 'equalto', 'available')|list|length }} in Plex</span>
+      </summary>
+      <ul class="eps">
+        {% for ep in eps %}
+          <li class="ep state-{{ ep.state }}">
+            <span class="when">{% if ep.air_local %}{{ ep.air_local.strftime('%d %b %Y') }}{% else %}—{% endif %}</span>
+            <span class="who"><span class="show">{{ ep.title or '—' }}</span></span>
+            <span class="code">{{ ep.code }}</span>
+            <span class="pill">{{ ep.mark }} {{ ep.label }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </details>
+  {% endfor %}
 {% else %}
-  <p class="empty">No episodes in the synced window. Sonarr only supplies −7 to +60 days.</p>
+  <p class="empty">No episodes held for this series yet.</p>
 {% endif %}
 
 <script>
@@ -76,6 +99,31 @@
     const data = await r.json();
     btn.classList.toggle('primary', data.pinned);
     btn.textContent = data.pinned ? 'Pinned' : 'Pin this show';
+  }
+
+  async function loadGuide(id) {
+    const btn = document.getElementById('load-guide');
+    const out = document.getElementById('guide-result');
+    btn.disabled = true;
+    out.className = 'result pending';
+    out.textContent = 'Asking Sonarr…';
+    try {
+      const r = await fetch('/api/series/' + id + '/episodes', { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) {
+        out.className = 'result bad';
+        out.textContent = '✕ ' + (data.detail || r.status);
+        btn.disabled = false;
+        return;
+      }
+      out.className = 'result ok';
+      out.textContent = '✓ ' + data.episodes + ' episodes. Reloading…';
+      location.reload();
+    } catch (err) {
+      out.className = 'result bad';
+      out.textContent = '✕ ' + err;
+      btn.disabled = false;
+    }
   }
 </script>
 {% endblock %}

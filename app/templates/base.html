@@ -304,6 +304,26 @@
     font-size: 13px; padding: .2rem .55rem; border-radius: 999px;
     border: 1px solid var(--line); background: var(--panel);
   }
+  /* ── Season guide ── */
+  .season {
+    border: 1px solid var(--line); border-radius: 8px; margin-bottom: .5rem;
+    background: var(--panel);
+  }
+  .season > summary {
+    cursor: pointer; padding: .55rem .8rem; font-size: 14px; font-weight: 600;
+    display: flex; align-items: baseline; gap: .8rem;
+  }
+  .season > summary .count { font-weight: 400; font-size: 12.5px; color: var(--muted); }
+  .season > summary .have {
+    margin-left: auto; font-weight: 400; font-size: 12px; color: var(--ok);
+  }
+  .season .eps { padding: 0 .5rem .5rem; }
+  .season .ep { grid-template-columns: 6.5rem 1fr 5.5rem 7.5rem; }
+  button.tiny {
+    font-size: 12px; padding: .2rem .5rem; margin-left: .6rem;
+    text-transform: none; letter-spacing: 0; font-weight: 500;
+  }
+  .card.just-pinned { opacity: .55; }
   .dormant summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 1.5rem; }
   /* ── Series detail ── */
   .crumb { margin: 0 0 1rem; font-size: 13px; }
@@ -357,6 +377,7 @@
   <nav>
     <a href="/" class="{% block nav_calendar %}{% endblock %}">Calendar</a>
     <a href="/library" class="{% block nav_library %}{% endblock %}">Library</a>
+    <a href="/discover" class="{% block nav_discover %}{% endblock %}">Discover</a>
     {% if current_user(request) and current_user(request)['role'] == 'admin' %}
       <a href="/settings" class="{% block nav_settings %}{% endblock %}">Settings</a>
     {% endif %}
