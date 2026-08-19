@@ -132,6 +132,10 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 #: Reachable without a session. Everything else needs one.
 PUBLIC_PATHS = frozenset({"/login", "/setup", "/healthz"})
 
+#: Admin-only prefixes. Syncing rewrites data everyone sees, so it belongs
+#: here rather than being reachable by any signed-in account.
+ADMIN_PREFIXES = ("/settings", "/api/sync")
+
 
 def current_user(request: Request):
     return getattr(request.state, "user", None)
@@ -196,7 +200,7 @@ async def authenticate(request: Request, call_next):
         return RedirectResponse(f"/login?next={nxt}", status_code=303)
 
     request.state.user = user
-    if path.startswith("/settings") and user["role"] != auth.ADMIN:
+    if path.startswith(ADMIN_PREFIXES) and user["role"] != auth.ADMIN:
         return templates.TemplateResponse(
             request, "forbidden.html", {"needed": "an admin"}, status_code=403
         )
@@ -386,6 +390,31 @@ async def users_action(request: Request):
                 return back("That is the only admin left.", ok=False)
             auth.set_role(conn, target, role)
     return back()
+
+
+@app.get("/settings/jobs")
+async def jobs_page(request: Request):
+    """Every sync job with its last result and a way to run it now.
+
+    The manual trigger existed from the start, but only as a curl against
+    /api/sync — which stopped working the moment the app grew a login.
+    """
+    scheduler = getattr(request.app.state, "scheduler", None)
+    next_runs = {
+        j.id: (j.next_run_time.isoformat() if j.next_run_time else None)
+        for j in (scheduler.get_jobs() if scheduler else [])
+    }
+    last = {r["job"]: r for r in last_runs()}
+
+    jobs = [
+        {
+            "name": name,
+            "last": last.get(name),
+            "next_run": next_runs.get(name),
+        }
+        for name in sorted(REGISTRY)
+    ]
+    return templates.TemplateResponse(request, "jobs.html", {"jobs": jobs})
 
 
 @app.get("/healthz")

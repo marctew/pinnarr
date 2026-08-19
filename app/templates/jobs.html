@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Jobs · Pinnarr{% endblock %}
+{% block nav_settings %}active{% endblock %}
+{% block content %}
+<h1>Sync jobs</h1>
+<p class="lede">Everything runs on a schedule; this is for when you don't want
+  to wait. <a href="/settings">Back to settings</a>.</p>
+
+<table class="users jobs">
+  <thead>
+    <tr><th>Job</th><th>Last run</th><th>Result</th><th>Next</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for job in jobs %}
+      <tr id="job-{{ job.name }}">
+        <td><code>{{ job.name }}</code></td>
+        <td class="when">{{ job.last['finished_at'][:16].replace('T', ' ') if job.last and job.last['finished_at'] else '—' }}</td>
+        <td class="detail {{ 'bad' if job.last and job.last['status'] == 'error' }}">
+          {{ job.last['detail'] if job.last and job.last['detail'] else ('never run' if not job.last else job.last['status']) }}
+        </td>
+        <td class="when">{{ job.next_run[:16].replace('T', ' ') if job.next_run else '—' }}</td>
+        <td class="right">
+          <button type="button" onclick="run('{{ job.name }}')">Run now</button>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<script>
+  async function run(name) {
+    const row = document.getElementById('job-' + name);
+    const cell = row.querySelector('.detail');
+    const btn = row.querySelector('button');
+    btn.disabled = true;
+    cell.className = 'detail';
+    cell.textContent = 'Running…';
+    try {
+      // Deliberately synchronous on the server: the answer you want is what
+      // the job actually did, so this can take a while on a first full walk.
+      const r = await fetch('/api/sync/' + name, { method: 'POST' });
+      const data = await r.json();
+      cell.className = 'detail' + (data.status === 'error' ? ' bad' : '');
+      cell.textContent = data.detail || data.status;
+      row.querySelector('.when').textContent = 'just now';
+    } catch (err) {
+      cell.className = 'detail bad';
+      cell.textContent = String(err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+</script>
+{% endblock %}

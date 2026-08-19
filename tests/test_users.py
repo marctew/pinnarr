@@ -324,3 +324,33 @@ def test_your_ntfy_topic_is_yours(db, admin_token):
     signed_in(token).post("/profile", data={"ntfy_topic": "marc-shows"})
     with session() as conn:
         assert auth.get_user(conn, user_id)["ntfy_topic"] == "marc-shows"
+
+
+def test_a_standard_user_cannot_trigger_a_sync(db, account):
+    """Syncing rewrites data everyone sees, so it is not a per-user action."""
+    account()
+    token, _ = account("bob", "user")
+    assert signed_in(token).post("/api/sync/plex_library").status_code == 403
+
+
+def test_an_admin_can_trigger_a_sync(client):
+    body = client.post("/api/sync/plex_library").json()
+    assert body["job"] == "plex_library"
+
+
+def test_the_jobs_page_lists_every_job_with_a_run_button(client):
+    body = client.get("/settings/jobs").text
+    assert "sonarr_series" in body
+    assert "plex_library" in body
+    assert "Run now" in body
+
+
+def test_a_standard_user_cannot_see_the_jobs_page(db, account):
+    account()
+    token, _ = account("bob", "user")
+    assert signed_in(token).get("/settings/jobs").status_code == 403
+
+
+def test_the_jobs_page_shows_the_last_result(client):
+    client.post("/api/sync/plex_library")
+    assert "skipped: Plex not configured" in client.get("/settings/jobs").text
