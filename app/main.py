@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from app import __version__
+from app import __version__, labels
 from app.config import (
     SCHEDULING_FIELDS,
     SECRET_FIELDS,
@@ -50,6 +50,7 @@ from app.repo import (
     pinned_count,
     pinned_episodes,
     query_series,
+    section_titles,
     series_episodes,
     set_pinned,
     undo_bulk_pin,
@@ -125,6 +126,13 @@ app = FastAPI(
 _job_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.globals.update(
+    outlook_label=labels.outlook,
+    outlook_badge=labels.outlook_badge,
+    status_label=labels.sonarr_status,
+    OUTLOOK=labels.OUTLOOK,
+    SONARR_STATUS=labels.SONARR_STATUS,
+)
 
 
 def stop_scheduler(app: FastAPI) -> None:
@@ -335,6 +343,7 @@ async def library(request: Request):
         total = count_series(conn, f)
         rows = query_series(conn, f)
         facets = facet_counts(conn, f)
+        sections = section_titles(conn)
         pinned_total = pinned_count(conn)
         can_undo = latest_bulk_batch(conn) is not None
 
@@ -346,6 +355,7 @@ async def library(request: Request):
             "f": f,
             "series": rows,
             "facets": facets,
+            "sections": sections,
             "total": total,
             "pinned_total": pinned_total,
             "page": min(f.page, pages),

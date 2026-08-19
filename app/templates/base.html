@@ -127,13 +127,21 @@
     position: relative; display: block; width: 100%; padding: 0; border: 0; border-radius: 8px;
     overflow: hidden; background: var(--panel); cursor: pointer; aspect-ratio: 2 / 3;
   }
+  .card .poster { text-decoration: none; }
   .card .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .card .poster:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
   .card .pin {
-    position: absolute; right: 6px; bottom: 6px; font-size: 15px; line-height: 1;
-    padding: 3px 4px; border-radius: 6px; background: rgba(0,0,0,.55); opacity: .25;
+    position: absolute; right: 6px; bottom: 6px; display: flex; align-items: center;
+    gap: .3rem; font: inherit; font-size: 11.5px; line-height: 1; cursor: pointer;
+    padding: .3rem .45rem; border-radius: 999px; border: 1px solid rgba(255,255,255,.25);
+    background: rgba(0,0,0,.72); color: #fff;
   }
-  .card.is-pinned .pin { opacity: 1; }
+  .card .pin .glyph { filter: grayscale(1) opacity(.7); }
+  .card .pin:hover { border-color: var(--accent); background: rgba(0,0,0,.88); }
+  .card.is-pinned .pin {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+  }
+  .card.is-pinned .pin .glyph { filter: none; }
   .card.is-pinned .poster { outline: 2px solid var(--accent); outline-offset: 1px; }
   .badge { font-size: 11.5px; color: var(--muted); margin: .2rem 0 0; }
   .badge.outlook-dated { color: var(--accent); }
@@ -217,18 +225,10 @@
   .card h4 a { color: inherit; text-decoration: none; }
   .card h4 a:hover { color: var(--accent); }
   .card { position: relative; }
-  .card .info {
-    position: absolute; top: 6px; right: 6px; width: 20px; height: 20px;
-    display: grid; place-items: center; border-radius: 50%;
-    background: rgba(0,0,0,.6); color: #fff; font-size: 12px; font-style: italic;
-    font-weight: 700; text-decoration: none; opacity: 0; transition: opacity .12s;
-  }
-  .card:hover .info, .card .info:focus { opacity: 1; }
   a.chip { text-decoration: none; color: var(--ink); }
   a.chip:hover { border-color: var(--accent); color: var(--accent); }
   @media (max-width: 820px) {
     .detail { grid-template-columns: 1fr; }
-    .card .info { opacity: 1; }
   }
   .dormant summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 1.5rem; }
   @media (max-width: 820px) {

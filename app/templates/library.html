@@ -36,9 +36,9 @@
       {% endfor %}
     </div>
 
-    {{ facet("Library", "section", facets.sections, f.sections|map('string')|list) }}
-    {{ facet("Outlook", "outlook", facets.outlooks, f.outlooks) }}
-    {{ facet("Status", "status", facets.statuses, f.statuses) }}
+    {{ facet("Library", "section", facets.sections, f.sections|map('string')|list, sections) }}
+    {{ facet("Outlook", "outlook", facets.outlooks, f.outlooks, OUTLOOK) }}
+    {{ facet("Status", "status", facets.statuses, f.statuses, SONARR_STATUS) }}
     {{ facet("Genre", "genre", facets.genres, f.genres) }}
     {{ facet("Network", "network", facets.networks, f.networks) }}
 
@@ -73,19 +73,18 @@
     <div class="grid">
       {% for s in series %}
         <article class="card {{ 'is-pinned' if s['pinned'] }}" id="card-{{ s['id'] }}">
-          <button type="button" class="poster" onclick="togglePin({{ s['id'] }})"
+          <a class="poster" href="/series/{{ s['id'] }}">
+            <img src="/poster/{{ s['id'] }}" alt="{{ s['title'] }}" loading="lazy"
+                 width="200" height="300">
+          </a>
+          <button type="button" class="pin" onclick="togglePin({{ s['id'] }})"
+                  aria-pressed="{{ 'true' if s['pinned'] else 'false' }}"
                   title="{{ 'Unpin' if s['pinned'] else 'Pin' }} {{ s['title'] }}">
-            <img src="/poster/{{ s['id'] }}" alt="" loading="lazy" width="200" height="300">
-            <span class="pin">📌</span>
+            <span class="glyph">📌</span><span class="word">{{ 'Pinned' if s['pinned'] else 'Pin' }}</span>
           </button>
-          <a class="info" href="/series/{{ s['id'] }}" title="{{ s['title'] }} details">i</a>
           <h4><a href="/series/{{ s['id'] }}">{{ s['title'] }}</a>{% if s['year'] %}
             <span class="year">{{ s['year'] }}</span>{% endif %}</h4>
-          <p class="badge outlook-{{ s['outlook'] or 'unknown' }}">
-            {{ {'dated': '▸ dated', 'announced': 'announced', 'in_production': 'filming',
-                'between_seasons': 'hiatus', 'dormant': '⚠ probably over',
-                'cancelled': 'cancelled', 'ended': 'ended'}.get(s['outlook'], '—') }}
-          </p>
+          <p class="badge outlook-{{ s['outlook'] or 'unknown' }}">{{ outlook_badge(s['outlook']) }}</p>
         </article>
       {% endfor %}
     </div>
@@ -117,6 +116,10 @@
     if (!r.ok) return;
     const data = await r.json();
     card.classList.toggle('is-pinned', data.pinned);
+    const btn = card.querySelector('.pin');
+    btn.setAttribute('aria-pressed', String(data.pinned));
+    btn.title = (data.pinned ? 'Unpin' : 'Pin');
+    btn.querySelector('.word').textContent = data.pinned ? 'Pinned' : 'Pin';
     document.getElementById('pinned-total').textContent = data.pinned_total;
   }
 

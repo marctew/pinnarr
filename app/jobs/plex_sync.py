@@ -8,7 +8,7 @@ from app.clients.plex import PlexClient
 from app.config import get_settings
 from app.db import session
 from app.jobs import tracked
-from app.repo import upsert_from_plex
+from app.repo import record_sections, upsert_from_plex
 
 log = logging.getLogger(__name__)
 
@@ -21,10 +21,16 @@ async def sync_plex_library() -> str:
 
     client = PlexClient()
 
+    # Names as well as ids: the library facet needs something readable, and
+    # we are already making this call.
+    available = await client.sections()
+    with session() as conn:
+        record_sections(conn, available)
+
     sections = settings.plex_tv_sections
     if not sections:
         # Auto-detect rather than making the user hunt for section IDs.
-        sections = await client.tv_section_ids()
+        sections = [s["id"] for s in available if s["type"] == "show"]
         log.info("auto-detected TV sections: %s", sections)
     if not sections:
         return "no TV sections found"

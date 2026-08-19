@@ -16,9 +16,7 @@
 
     <p>
       <span class="badge-lg outlook-{{ s['outlook'] or 'unknown' }}">
-        {{ {'dated': '▸ dated', 'announced': 'announced', 'in_production': 'filming',
-            'between_seasons': 'hiatus', 'dormant': '⚠ probably over',
-            'cancelled': 'cancelled', 'ended': 'ended'}.get(s['outlook'], '—') }}
+        {{ outlook_label(s['outlook']) }}
       </span>
       {% if s['next_airing'] %}<span class="next">next {{ s['next_airing'][:10] }}</span>{% endif %}
     </p>
@@ -33,7 +31,7 @@
     {% if s['overview'] %}<p class="overview">{{ s['overview'] }}</p>{% endif %}
 
     <dl class="facts">
-      <dt>Sonarr</dt><dd>{{ s['sonarr_status'] or '—' }}{% if not s['in_sonarr'] %} (not in Sonarr){% endif %}</dd>
+      <dt>Sonarr</dt><dd>{{ status_label(s['sonarr_status']) }}{% if not s['in_sonarr'] %} (not in Sonarr){% endif %}</dd>
       <dt>TMDB</dt><dd>{{ s['tmdb_status'] or '—' }}</dd>
       <dt>In Plex</dt><dd>{{ 'yes' if s['in_plex'] else 'no' }}</dd>
       <dt>Seasons</dt><dd>{{ s['latest_season'] or '—' }} known, {{ s['latest_aired_season'] or '—' }} aired</dd>

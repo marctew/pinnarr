@@ -206,3 +206,31 @@ def test_a_missing_poster_serves_a_placeholder_not_a_broken_image(client):
     r = client.get(f"/poster/{sid}")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("image/svg")
+
+
+def test_facets_use_friendly_names_not_stored_values(client):
+    body = client.get("/library").text
+    assert ">On hiatus<" in body        # between_seasons
+    assert ">Continuing<" in body       # sonarr_status
+    assert ">between_seasons<" not in body
+
+
+def test_a_plex_section_shows_its_name_not_its_id(client):
+    with session() as conn:
+        conn.execute(
+            "INSERT INTO plex_sections (id, title, type, agent, seen_at) "
+            "VALUES (2, 'TV Shows', 'show', 'tv.plex.agents.series', '2026-08-19T00:00:00+00:00')"
+        )
+    assert ">TV Shows<" in client.get("/library").text
+
+
+def test_an_unknown_section_id_still_renders(client):
+    """Section names arrive with the next Plex sync; the facet must not break
+    before then."""
+    assert client.get("/library").status_code == 200
+
+
+def test_the_poster_links_to_the_show_and_the_pin_is_its_own_control(client):
+    body = client.get("/library").text
+    assert 'class="poster" href="/series/' in body
+    assert 'class="pin" onclick="togglePin(' in body

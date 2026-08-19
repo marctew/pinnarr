@@ -618,3 +618,20 @@ def genres_for(conn: sqlite3.Connection, series_id: int) -> list[str]:
             (series_id,),
         )
     ]
+
+
+def record_sections(conn: sqlite3.Connection, sections: list[dict[str, Any]]) -> None:
+    """Remember the Plex library names, so facets can use them."""
+    for sec in sections:
+        conn.execute(
+            "INSERT INTO plex_sections (id, title, type, agent, seen_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET title = excluded.title, type = excluded.type, "
+            "agent = excluded.agent, seen_at = excluded.seen_at",
+            (sec["id"], sec["title"], sec.get("type"), sec.get("agent"), utcnow()),
+        )
+
+
+def section_titles(conn: sqlite3.Connection) -> dict[int, str]:
+    return {
+        int(r["id"]): r["title"] for r in conn.execute("SELECT id, title FROM plex_sections")
+    }
