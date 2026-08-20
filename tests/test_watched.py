@@ -64,9 +64,10 @@ def test_marking_one_episode_leaves_the_others(db, admin_token):
     _, user_id = admin_token
     with session() as conn:
         seed(conn, user_id)
-        assert mark_watched(conn, "9001", 1, 2, utcnow()) is True
+        assert mark_watched(conn, user_id, "9001", 1, 2, utcnow()) is True
         watched = conn.execute(
-            "SELECT episode FROM episodes WHERE watched_at IS NOT NULL"
+            "SELECT e.episode FROM episodes e "
+            "JOIN episode_watches w ON w.episode_id = e.id"
         ).fetchall()
     assert [r["episode"] for r in watched] == [2]
 
@@ -75,7 +76,7 @@ def test_an_episode_we_do_not_hold_is_reported_not_invented(db, admin_token):
     _, user_id = admin_token
     with session() as conn:
         seed(conn, user_id)
-        assert mark_watched(conn, "9001", 9, 9, utcnow()) is False
+        assert mark_watched(conn, user_id, "9001", 9, 9, utcnow()) is False
 
 
 def test_the_earliest_play_is_kept(db, admin_token):
@@ -85,10 +86,12 @@ def test_the_earliest_play_is_kept(db, admin_token):
     second = "2026-08-01T20:00:00+00:00"
     with session() as conn:
         seed(conn, user_id)
-        mark_watched(conn, "9001", 1, 1, second)
-        mark_watched(conn, "9001", 1, 1, first)
+        mark_watched(conn, user_id, "9001", 1, 1, second)
+        mark_watched(conn, user_id, "9001", 1, 1, first)
         got = conn.execute(
-            "SELECT watched_at FROM episodes WHERE season = 1 AND episode = 1"
+            "SELECT w.watched_at FROM episode_watches w "
+            "JOIN episodes e ON e.id = w.episode_id "
+            "WHERE e.season = 1 AND e.episode = 1"
         ).fetchone()["watched_at"]
     assert got == first
 
@@ -103,7 +106,7 @@ def test_a_watched_episode_drops_off_ready(client, admin_token):
     assert client.get("/ready").text.count("Episode ") == 3
 
     with session() as conn:
-        mark_watched(conn, "9001", 1, 2, utcnow())
+        mark_watched(conn, user_id, "9001", 1, 2, utcnow())
     body = client.get("/ready").text
     assert "Episode 2" not in body
     assert "Episode 1" in body
@@ -114,7 +117,7 @@ def test_watching_everything_empties_the_page(client, admin_token):
     with session() as conn:
         seed(conn, user_id)
         for number in (1, 2, 3):
-            mark_watched(conn, "9001", 1, number, utcnow())
+            mark_watched(conn, user_id, "9001", 1, number, utcnow())
     assert "Either you're caught up" in client.get("/ready").text
 
 
@@ -196,3 +199,96 @@ async def test_the_availability_job_does_not_backdate_a_back_catalogue(db, admin
         ).fetchone()["n"]
     assert seen == 3
     assert stamped == 0
+
+
+# ── Whose viewing is whose ──
+
+
+def test_one_persons_viewing_is_not_anothers(db, account):
+    """The whole reason this moved out of a column on episodes."""
+    _, marc = account()
+    _, bob = account("bob", "user")
+    with session() as conn:
+        seed(conn, marc)
+        conn.execute(
+            "INSERT INTO pins (user_id, series_id, pinned_at) "
+            "SELECT ?, id, ? FROM series", (bob, utcnow()),
+        )
+        mark_watched(conn, marc, "9001", 1, 1, utcnow())
+
+    from app.repo import watch_progress
+
+    with session() as conn:
+        assert watch_progress(conn, marc)[1]["seen"] == 1
+        assert watch_progress(conn, bob)[1]["seen"] == 0
+
+
+async def test_a_play_from_an_unclaimed_plex_account_is_dropped(db, admin_token, monkeypatch):
+    """Crediting it to everybody would make watched mean less than nothing."""
+    from app.clients.tautulli import EpisodePlay
+    from app.jobs import tautulli_sync
+
+    _, user_id = admin_token
+    save_settings({"tautulli_url": TAUTULLI, "tautulli_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+
+    async def no_series(_self, length=2000):
+        return {}
+
+    async def one_play(_self, length=2000):
+        return [EpisodePlay("9001", 1, 1, utcnow(), viewer="someone-else")]
+
+    monkeypatch.setattr(TautulliClient, "last_watched_by_show", no_series)
+    monkeypatch.setattr(TautulliClient, "watched_episodes", one_play)
+
+    detail = await tautulli_sync.sync_tautulli_history()
+    assert "nobody here has claimed" in detail
+    with session() as conn:
+        assert conn.execute(
+            "SELECT count(*) AS n FROM episode_watches"
+        ).fetchone()["n"] == 0
+
+
+async def test_a_play_from_a_claimed_account_is_credited(db, admin_token, monkeypatch):
+    from app.clients.tautulli import EpisodePlay
+    from app.jobs import tautulli_sync
+
+    _, user_id = admin_token
+    save_settings({"tautulli_url": TAUTULLI, "tautulli_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+        conn.execute("UPDATE users SET plex_username = 'MarcTew' WHERE id = ?", (user_id,))
+
+    async def no_series(_self, length=2000):
+        return {}
+
+    async def one_play(_self, length=2000):
+        # Case differs from what was stored; Plex is not consistent about it.
+        return [EpisodePlay("9001", 1, 1, utcnow(), viewer="marctew")]
+
+    monkeypatch.setattr(TautulliClient, "last_watched_by_show", no_series)
+    monkeypatch.setattr(TautulliClient, "watched_episodes", one_play)
+
+    await tautulli_sync.sync_tautulli_history()
+    with session() as conn:
+        assert conn.execute(
+            "SELECT count(*) AS n FROM episode_watches WHERE user_id = ?", (user_id,)
+        ).fetchone()["n"] == 1
+
+
+def test_the_library_shows_your_progress(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        mark_watched(conn, user_id, "9001", 1, 1, utcnow())
+    assert "1/3 watched" in client.get("/library").text
+
+
+def test_a_fully_watched_show_says_so(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        for number in (1, 2, 3):
+            mark_watched(conn, user_id, "9001", 1, number, utcnow())
+    assert "✓ watched" in client.get("/library").text

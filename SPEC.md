@@ -199,7 +199,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `plex_library` | 03:00 nightly | Walk TV sections, upsert series, resolve GUIDs, cache posters, populate genres |
 | `sonarr_series` | 03:10 nightly | Map `sonarr_id`, status, `nextAiring`, seasons array → `latest_season` |
 | `sonarr_calendar` | every 2h | Pull −7d…+60d window for all series; filter to pinned at render time |
-| `tautulli_history` | 03:20 nightly | Watch state per series *and per episode* |
+| `tautulli_history` | 03:20 nightly | Watch state per series and per episode, attributed per user |
 | `tmdb_status` | 03:30 nightly | Production status for pinned series; recompute `outlook` for all |
 | `plex_availability` | hourly | For pinned series only: confirm recent episodes are present in Plex |
 | `sonarr_queue` | every minute | What is downloading right now |
@@ -596,6 +596,20 @@ is not already in the library is **reported rather than pinned** — a pin with
 no episodes, no Sonarr entry and no artwork would be worse than none. That
 gap is what an *add to Sonarr* feature would fill, and it is a much larger
 boundary than this one.
+
+## 22. Watch state
+
+Per viewer, like pins. Tautulli reports history by Plex username, so each
+Pinnarr account is matched to a Plex one via the token it already supplies
+for the watchlist — pressing **Test watchlist** is what learns and stores it.
+
+A play from a Plex account nobody here has claimed is **dropped, not shared**.
+Crediting one person's viewing to everybody would make "watched" mean less
+than nothing on a page that is otherwise entirely personal, and the job
+reports how many it could not attribute.
+
+Only completed plays count. Tautulli reports `0.5` for a partial, and a show
+abandoned twenty minutes in should stay on the list.
 
 ## 18. Beyond v1
 

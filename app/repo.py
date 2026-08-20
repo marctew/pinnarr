@@ -960,11 +960,14 @@ def ready_to_watch(
             WHERE (e.has_file = 1 OR e.in_plex = 1)
               AND COALESCE(e.arrived_at, e.air_date_utc) >= ?
               AND COALESCE(e.arrived_at, e.air_date_utc) <= ?
-              AND e.watched_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM episode_watches w
+                  WHERE w.episode_id = e.id AND w.user_id = ?
+              )
               AND (? IS NULL OR (e.runtime IS NOT NULL AND e.runtime <= ?))
             ORDER BY recency DESC, e.season ASC, e.episode ASC
             """,
-            (user_id, since, until, max_runtime, max_runtime),
+            (user_id, since, until, user_id, max_runtime, max_runtime),
         )
     )
 
@@ -1189,15 +1192,48 @@ def gaps(conn: sqlite3.Connection, user_id: int) -> list[tuple[sqlite3.Row, list
 
 
 
-def mark_watched(conn: sqlite3.Connection, plex_rating_key: str, season: int,
-                 episode: int, watched_at: str) -> bool:
-    """Record that an episode has been seen. Earliest play wins."""
-    cur = conn.execute(
+def mark_watched(conn: sqlite3.Connection, user_id: int, plex_rating_key: str,
+                 season: int, episode: int, watched_at: str) -> bool:
+    """Record that one viewer has seen an episode. Earliest play wins.
+
+    Per user, because everything else about a pin list is. Attributing one
+    person's viewing to everybody would make "watched" mean less than nothing.
+    """
+    row = conn.execute(
+        "SELECT e.id FROM episodes e JOIN series s ON s.id = e.series_id "
+        "WHERE s.plex_rating_key = ? AND e.season = ? AND e.episode = ?",
+        (plex_rating_key, season, episode),
+    ).fetchone()
+    if row is None:
+        return False
+
+    conn.execute(
         """
-        UPDATE episodes SET watched_at = MIN(COALESCE(watched_at, ?), ?), updated_at = ?
-        WHERE season = ? AND episode = ?
-          AND series_id = (SELECT id FROM series WHERE plex_rating_key = ?)
+        INSERT INTO episode_watches (user_id, episode_id, watched_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id, episode_id) DO UPDATE SET
+            watched_at = MIN(episode_watches.watched_at, excluded.watched_at)
         """,
-        (watched_at, watched_at, utcnow(), season, episode, plex_rating_key),
+        (user_id, int(row["id"]), watched_at),
     )
-    return cur.rowcount > 0
+    return True
+
+
+def watch_progress(conn: sqlite3.Connection, user_id: int) -> dict[int, dict[str, int]]:
+    """Per series: how many episodes this user holds, and how many they have seen."""
+    rows = conn.execute(
+        """
+        SELECT e.series_id,
+               count(*) AS have,
+               sum(CASE WHEN w.watched_at IS NOT NULL THEN 1 ELSE 0 END) AS seen
+        FROM episodes e
+        LEFT JOIN episode_watches w ON w.episode_id = e.id AND w.user_id = ?
+        WHERE e.season > 0 AND (e.has_file = 1 OR e.in_plex = 1)
+        GROUP BY e.series_id
+        """,
+        (user_id,),
+    )
+    return {
+        int(r["series_id"]): {"have": int(r["have"]), "seen": int(r["seen"] or 0)}
+        for r in rows
+    }

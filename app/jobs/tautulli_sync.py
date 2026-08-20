@@ -30,12 +30,32 @@ async def sync_tautulli_history() -> str:
         # Per episode as well as per series. Without this, Ready to Watch
         # could never strike anything off — marking something watched in Plex
         # changed a sort order and nothing else.
+        # Plex username → Pinnarr account. A play we cannot attribute is
+        # dropped rather than credited to everyone: showing somebody else's
+        # viewing as yours is worse than showing none.
+        accounts = {
+            str(r["plex_username"]).lower(): int(r["id"])
+            for r in conn.execute(
+                "SELECT id, plex_username FROM users WHERE plex_username IS NOT NULL"
+            )
+        }
+
         marked = 0
+        unattributed = 0
         for play in plays:
+            user_id = accounts.get((play.viewer or "").lower())
+            if user_id is None:
+                unattributed += 1
+                continue
             if mark_watched(
-                conn, play.grandparent_rating_key, play.season, play.episode,
-                play.watched_at,
+                conn, user_id, play.grandparent_rating_key, play.season,
+                play.episode, play.watched_at,
             ):
                 marked += 1
 
-    return f"{len(newest or {})} series with history, {marked} episode(s) marked watched"
+    note = f"{len(newest or {})} series with history, {marked} episode(s) watched"
+    if unattributed:
+        note += (
+            f"; {unattributed} play(s) from Plex accounts nobody here has claimed"
+        )
+    return note

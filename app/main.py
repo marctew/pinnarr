@@ -83,6 +83,7 @@ from app.repo import (
     suggested,
     undo_bulk_pin,
     upsert_episode,
+    watch_progress,
 )
 
 #: Shown when Plex has no artwork, or is unreachable. Inline so the grid never
@@ -494,7 +495,17 @@ async def watchlist_test(request: Request) -> JSONResponse:
     """Check the signed-in user's own Plex token against their watchlist."""
     with session() as conn:
         row = auth.get_user(conn, int(request.state.user["id"]))
-    return JSONResponse(await watchlist_client.check(row["plex_token"] or ""))
+
+    result = await watchlist_client.check(row["plex_token"] or "")
+    # Learn who the token belongs to while we have it: Tautulli reports
+    # history by Plex username, and without it nothing can be attributed.
+    if result.get("username"):
+        with session() as conn:
+            conn.execute(
+                "UPDATE users SET plex_username = ?, updated_at = ? WHERE id = ?",
+                (result["username"], utcnow(), int(request.state.user["id"])),
+            )
+    return JSONResponse(result)
 
 
 @app.get("/settings/backup")
@@ -763,6 +774,7 @@ async def library(request: Request):
         rows = query_series(conn, f)
         facets = facet_counts(conn, f)
         sections = section_titles(conn)
+        progress = watch_progress(conn, f.user_id)
         pinned_total = pinned_count(conn, f.user_id)
         can_undo = latest_bulk_batch(conn, f.user_id) is not None
 
@@ -775,6 +787,7 @@ async def library(request: Request):
             "series": rows,
             "facets": facets,
             "sections": sections,
+            "progress": progress,
             "total": total,
             "pinned_total": pinned_total,
             "page": min(f.page, pages),

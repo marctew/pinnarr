@@ -33,6 +33,8 @@ class EpisodePlay:
     season: int
     episode: int
     watched_at: str
+    #: Plex username. Without it, one person's viewing becomes everyone's.
+    viewer: str | None = None
 
 
 class TautulliClient:
@@ -135,6 +137,7 @@ class TautulliClient:
                     watched_at=datetime.fromtimestamp(stamp, tz=UTC)
                     .replace(microsecond=0)
                     .isoformat(),
+                    viewer=(row.get("user") or row.get("friendly_name") or None),
                 )
             )
         return plays

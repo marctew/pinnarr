@@ -12,6 +12,7 @@ Sonarr's versioned API. Every call is written to fail softly for that reason.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -113,6 +114,21 @@ def rating_key_from_guid(guid: str | None) -> str | None:
     return tail or None
 
 
+async def account(token: str) -> str | None:
+    """The Plex username a token belongs to.
+
+    Tautulli reports history by Plex username, so without this there is no
+    way to tell whose viewing is whose.
+    """
+    if not token:
+        return None
+    data = await request_json(
+        SERVICE, "GET", "https://plex.tv/api/v2/user", headers=_headers(token)
+    )
+    name = (data or {}).get("username") or (data or {}).get("title")
+    return str(name) if name else None
+
+
 async def check(token: str) -> dict[str, Any]:
     """Confirm a token works, for the profile page."""
     try:
@@ -122,4 +138,12 @@ async def check(token: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — an undocumented API deserves this
         log.warning("watchlist check failed: %s", exc)
         return {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
-    return {"ok": True, "message": f"Connected. {len(items)} TV show(s) watchlisted."}
+    who = None
+    with contextlib.suppress(Exception):
+        who = await account(token)
+    whose = f" Signed in as {who}." if who else ""
+    return {
+        "ok": True,
+        "message": f"Connected. {len(items)} TV show(s) watchlisted.{whose}",
+        "username": who,
+    }

@@ -29,6 +29,15 @@
         pinning here adds the show to your watchlist and watchlisting there
         pins it here — but only for shows already in the library.</p>
     </label>
+    <p class="hint">
+      {% if current_user(request)['plex_username'] %}
+        Recognised as <strong>{{ current_user(request)['plex_username'] }}</strong> in Plex,
+        so your viewing is told apart from everyone else's.
+      {% else %}
+        Pinnarr doesn't know which Plex account you are yet, so nothing shows as
+        watched. Save a token and press Test — that's what identifies you.
+      {% endif %}
+    </p>
     <button type="button" onclick="testWatchlist()">Test watchlist</button>
     <div class="result" id="watchlist-result"></div>
   </fieldset>

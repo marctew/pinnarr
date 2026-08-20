@@ -90,6 +90,15 @@
           <h4><a href="/series/{{ s['id'] }}">{{ s['title'] }}</a>{% if s['year'] %}
             <span class="year">{{ s['year'] }}</span>{% endif %}</h4>
           <p class="badge outlook-{{ s['outlook'] or 'unknown' }}">{{ outlook_badge(s['outlook']) }}</p>
+          {% set seen = progress.get(s['id']) %}
+          {% if seen and seen.have %}
+            <p class="watched {{ 'done' if seen.seen == seen.have }}"
+               title="{{ seen.seen }} of {{ seen.have }} episodes you hold, watched by you">
+              {%- if seen.seen == seen.have %}✓ watched
+              {%- elif seen.seen %}{{ seen.seen }}/{{ seen.have }} watched
+              {%- else %}unwatched{% endif -%}
+            </p>
+          {% endif %}
         </article>
       {% endfor %}
     </div>
