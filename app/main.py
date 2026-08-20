@@ -710,7 +710,11 @@ async def poster_image(series_id: int):
     if row is None:
         raise HTTPException(status_code=404, detail="no such series")
 
-    result = await poster(series_id, row["poster_url"] or "")
+    result = await poster(
+        series_id,
+        plex_thumb=row["poster_url"] or "",
+        remote_url=row["remote_poster"] or "",
+    )
     if result is None:
         # A placeholder rather than a 404: a broken-image icon in a poster
         # grid looks like the app is broken, not like Plex lacks artwork.

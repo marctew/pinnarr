@@ -26,8 +26,9 @@ class SonarrSeries:
     next_airing: str | None
     previous_airing: str | None
     latest_season: int | None
-    # Defaulted so existing constructions stay valid; Sonarr always sends it.
+    # Defaulted so existing constructions stay valid; Sonarr always sends them.
     title_slug: str | None = None
+    poster_url: str | None = None
     seasons: list[int] = field(default_factory=list)
 
 
@@ -45,6 +46,23 @@ class SonarrEpisode:
     has_file: bool
 
 
+def _poster_from(item: dict[str, Any]) -> str | None:
+    """The absolute poster URL Sonarr knows about, if any.
+
+    remoteUrl is preferred over Sonarr's own /MediaCover path because it
+    needs no API key and keeps working when Sonarr is down.
+    """
+    for image in item.get("images") or []:
+        if not isinstance(image, dict):
+            continue
+        if (image.get("coverType") or "").lower() != "poster":
+            continue
+        remote = image.get("remoteUrl")
+        if remote and str(remote).startswith(("http://", "https://")):
+            return str(remote)
+    return None
+
+
 def _series_from_payload(item: dict[str, Any]) -> SonarrSeries:
     seasons = [
         int(s["seasonNumber"])
@@ -59,6 +77,7 @@ def _series_from_payload(item: dict[str, Any]) -> SonarrSeries:
         imdb_id=item.get("imdbId") or None,
         title=item.get("title") or "(untitled)",
         title_slug=item.get("titleSlug"),
+        poster_url=_poster_from(item),
         sort_title=item.get("sortTitle"),
         year=item.get("year") or None,
         status=item.get("status"),

@@ -191,6 +191,7 @@ def upsert_from_sonarr(conn: sqlite3.Connection, s: SonarrSeries) -> int:
     owned_by_sonarr = {
         "sonarr_id": s.sonarr_id,
         "title_slug": s.title_slug,
+        "remote_poster": s.poster_url,
         "sonarr_status": s.status,
         "network": s.network,
         "next_airing": s.next_airing,
