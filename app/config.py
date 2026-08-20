@@ -69,11 +69,6 @@ class Settings(BaseModel):
     # ── TMDB ─────────────────────────────────────
     tmdb_api_key: str = ""
 
-    # ── Radarr (v1.5) ────────────────────────────
-    radarr_enabled: bool = False
-    radarr_url: str = ""
-    radarr_api_key: str = ""
-
     # ── Notifications ────────────────────────────
     ntfy_url: str = "https://ntfy.sh"
     ntfy_topic: str = ""
@@ -112,7 +107,7 @@ class Settings(BaseModel):
         return v
 
     @field_validator(
-        "plex_url", "sonarr_url", "tautulli_url", "radarr_url", "ntfy_url",
+        "plex_url", "sonarr_url", "tautulli_url", "ntfy_url",
         mode="before",
     )
     @classmethod
@@ -169,7 +164,6 @@ SECRET_FIELDS: Final[frozenset[str]] = frozenset(
         "tautulli_api_key",
         "tmdb_api_key",
         "ntfy_token",
-        "radarr_api_key",
         "webhook_secret",
     }
 )

@@ -20,6 +20,7 @@ from app.clients.tautulli import TautulliClient
 from app.config import save_settings
 from app.db import session, utcnow
 from app.jobs.availability import sync_availability
+from app.jobs.tautulli_sync import sync_recent_history
 from app.main import app
 from app.repo import arrival_is_plausible, mark_watched
 
@@ -581,3 +582,125 @@ def test_without_a_key_the_pill_is_plain_text(client, admin_token):
     with session() as conn:
         sid = seed(conn, user_id, episodes=(1,))
     assert 'class="pill"' in client.get(f"/series/{sid}").text
+
+
+# ── One authority per person ──
+
+
+@respx.mock
+async def test_tautulli_leaves_token_holders_to_plex(db, admin_token):
+    """Both jobs used to write the same rows: plex_watched cleared anything
+    Plex called unwatched at :40, tautulli_recent put it back at :50, and
+    round it went. Whoever Plex can answer for, Plex answers for alone."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        conn.execute(
+            "UPDATE users SET plex_username = 'marc', plex_token = 'tok' WHERE id = ?",
+            (user_id,),
+        )
+    save_settings({"tautulli_url": TAUTULLI, "tautulli_api_key": "key"})
+
+    respx.get(f"{TAUTULLI}/api/v2").mock(
+        return_value=httpx.Response(200, json={"response": {"result": "success", "data": {
+            "data": [
+                {"grandparent_rating_key": "9001", "parent_media_index": 1,
+                 "media_index": 1, "watched_status": 1, "stopped": 1755000000,
+                 "user": "marc"},
+            ]
+        }}})
+    )
+    detail = await sync_recent_history()
+
+    assert "left to Plex" in detail
+    with session() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM episode_watches").fetchone()["n"] == 0
+
+
+@respx.mock
+async def test_tautulli_still_covers_accounts_without_a_token(db, admin_token):
+    """No token means Plex cannot be asked whose viewing it is, so the play
+    log is the only source there is."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        conn.execute(
+            "UPDATE users SET plex_username = 'marc', plex_token = NULL WHERE id = ?",
+            (user_id,),
+        )
+    save_settings({"tautulli_url": TAUTULLI, "tautulli_api_key": "key"})
+
+    respx.get(f"{TAUTULLI}/api/v2").mock(
+        return_value=httpx.Response(200, json={"response": {"result": "success", "data": {
+            "data": [
+                {"grandparent_rating_key": "9001", "parent_media_index": 1,
+                 "media_index": 1, "watched_status": 1, "stopped": 1755000000,
+                 "user": "marc"},
+            ]
+        }}})
+    )
+    await sync_recent_history()
+
+    with session() as conn:
+        row = conn.execute("SELECT source FROM episode_watches").fetchone()
+    assert row["source"] == "tautulli"
+
+
+def test_the_source_of_every_watch_is_recorded(db, admin_token):
+    """Without it there is no way to see which job put a row here, which is
+    what made the oscillation invisible."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        mark_watched(conn, user_id, "9001", 1, 1, utcnow(), source="tautulli")
+        assert conn.execute(
+            "SELECT source FROM episode_watches"
+        ).fetchone()["source"] == "tautulli"
+        mark_watched(conn, user_id, "9001", 1, 1, utcnow(), source="plex")
+        assert conn.execute(
+            "SELECT source FROM episode_watches"
+        ).fetchone()["source"] == "plex"
+
+
+# ── Plex's timestamp, not the sync's ──
+
+
+def test_plex_view_times_are_parsed_from_the_payload():
+    from app.clients.plex import _view_state
+
+    state = _view_state([
+        {"parentIndex": 1, "index": 1, "viewCount": 1, "ratingKey": "5",
+         "lastViewedAt": 1700000000},
+    ])
+    assert state[(1, 1)].viewed_at.startswith("2023-11-14")
+
+
+def test_a_missing_view_time_is_none_not_a_crash():
+    from app.clients.plex import _view_state
+
+    state = _view_state([
+        {"parentIndex": 1, "index": 2, "viewCount": 0, "ratingKey": "6"},
+        {"parentIndex": 1, "index": 3, "viewCount": 1, "ratingKey": "7",
+         "lastViewedAt": "rubbish"},
+    ])
+    assert state[(1, 2)].viewed_at is None
+    assert state[(1, 3)].viewed_at is None
+
+
+def test_the_sweep_dates_a_watch_to_when_plex_says_not_to_now(db, admin_token):
+    """Stamping the sync time made "last watched" a clock, not a history."""
+    from app.clients.plex import EpisodeView
+    from app.jobs.watch_state import _apply
+
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+
+    _apply(user_id, "9001", {
+        (1, 1): EpisodeView(watched=True, rating_key="11",
+                            viewed_at="2024-02-03T21:00:00+00:00"),
+    })
+    with session() as conn:
+        row = conn.execute("SELECT watched_at, source FROM episode_watches").fetchone()
+    assert row["watched_at"] == "2024-02-03T21:00:00+00:00"
+    assert row["source"] == "plex"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from calendar import monthrange
@@ -19,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
@@ -64,6 +66,7 @@ from app.repo import (
     get_series,
     is_pinned_by,
     latest_bulk_batch,
+    latest_retire_batch,
     latest_season,
     mark_episodes_synced,
     matching_ids,
@@ -83,6 +86,7 @@ from app.repo import (
     set_ratings,
     suggested,
     undo_bulk_pin,
+    undo_retire,
     upsert_episode,
     watch_progress,
 )
@@ -156,11 +160,35 @@ app = FastAPI(
 #: second impatient click. The cron side gets this from max_instances=1.
 _job_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+def _asset_version() -> str:
+    """A cache key that changes when the file does.
+
+    The app version will not do: editing the stylesheet without cutting a
+    release would leave every browser on the old copy, which is the
+    "force refresh and it is still wrong" failure.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(STATIC_DIR.glob("*")):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
+ASSET_VERSION = _asset_version()
+
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 #: Reachable without a session. Everything else needs one.
 #: Sonarr cannot log in, so the webhook is deliberately outside the session
 #: gate and authenticated by its own shared secret instead.
 PUBLIC_PATHS = frozenset({"/login", "/setup", "/healthz", "/hooks/sonarr"})
+
+#: The stylesheet has to load on the login page, which by definition nobody
+#: is signed in for. It is a prefix rather than a path because the mount
+#: serves whatever is in app/static.
+PUBLIC_PREFIXES = ("/static/",)
 
 #: Admin-only prefixes. Syncing rewrites data everyone sees, so it belongs
 #: here rather than being reachable by any signed-in account.
@@ -181,6 +209,7 @@ templates.env.globals.update(
     status_label=labels.sonarr_status,
     relative_day=labels.relative_day,
     plex_episode=plex_episode,
+    version=ASSET_VERSION,
     duration=labels.duration,
     OUTLOOK=labels.OUTLOOK,
     SONARR_STATUS=labels.SONARR_STATUS,
@@ -218,7 +247,7 @@ async def authenticate(request: Request, call_next):
     fails closed: a new endpoint is private until someone says otherwise.
     """
     path = request.url.path
-    if path in PUBLIC_PATHS:
+    if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
         return await call_next(request)
 
     with session() as conn:
@@ -1220,8 +1249,11 @@ async def retire_page(request: Request, done: str = ""):
     user_id = int(request.state.user["id"])
     with session() as conn:
         candidates = finished_pins(conn, user_id)
+        undoable = latest_retire_batch(conn, user_id)
     return templates.TemplateResponse(
-        request, "retire.html", {"candidates": candidates, "flash": done}
+        request,
+        "retire.html",
+        {"candidates": candidates, "flash": done, "can_undo": bool(undoable)},
     )
 
 
@@ -1235,6 +1267,21 @@ async def retire_pins(request: Request) -> JSONResponse:
         removed, batch = retire(conn, user_id, ids)
         total = pinned_count(conn, user_id)
     return JSONResponse({"retired": removed, "batch": batch, "pinned_total": total})
+
+
+@app.post("/api/series/retire-undo")
+async def undo_retire_pins(request: Request) -> JSONResponse:
+    """Put the last retired batch back.
+
+    Retire is the most destructive button in the app — one click, every
+    finished pin, no per-item confirmation. It said it was undoable long
+    before it was."""
+    user_id = int(request.state.user["id"])
+    with session() as conn:
+        batch = latest_retire_batch(conn, user_id)
+        restored = undo_retire(conn, user_id, batch) if batch else 0
+        total = pinned_count(conn, user_id)
+    return JSONResponse({"restored": restored, "pinned_total": total})
 
 
 @app.get("/discover")

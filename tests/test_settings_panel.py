@@ -117,10 +117,8 @@ def test_every_setting_has_a_control_on_the_page(client):
     from app.config import SECRET_FIELDS, Settings
 
     body = client.get("/settings").text
-    # Radarr is v1.5 and deliberately not on the form yet.
-    skip = {f for f in Settings.model_fields if f.startswith("radarr_")}
     for field in Settings.model_fields:
-        if field in skip or field in SECRET_FIELDS:
+        if field in SECRET_FIELDS:
             continue
         assert f'name="{field}"' in body, f"{field} has no control on /settings"
 

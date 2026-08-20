@@ -1051,17 +1051,84 @@ def finished_pins(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
 
 
 def retire(conn: sqlite3.Connection, user_id: int, series_ids: list[int]) -> tuple[int, str]:
-    """Unpin many at once, as one undoable batch."""
+    """Unpin many at once, as one undoable batch.
+
+    The pin row is copied to `retired_pins` before it goes, which is what
+    makes the undo possible. Nothing else reads that table, so `pins`
+    continues to mean "pinned right now" for every other query.
+    """
     batch = uuid.uuid4().hex[:12]
+    now = utcnow()
     removed = 0
     for series_id in series_ids:
-        cur = conn.execute(
+        row = conn.execute(
+            "SELECT pinned_at, notify FROM pins WHERE user_id = ? AND series_id = ?",
+            (user_id, series_id),
+        ).fetchone()
+        if row is None:
+            continue
+        conn.execute(
+            """
+            INSERT INTO retired_pins
+                (user_id, series_id, batch, pinned_at, notify, retired_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (user_id, series_id, batch) DO NOTHING
+            """,
+            (user_id, series_id, batch, row["pinned_at"], row["notify"], now),
+        )
+        conn.execute(
             "DELETE FROM pins WHERE user_id = ? AND series_id = ?", (user_id, series_id)
         )
-        if cur.rowcount:
-            refresh_pinned_flag(conn, series_id)
-            removed += 1
+        refresh_pinned_flag(conn, series_id)
+        removed += 1
     return removed, batch
+
+
+def latest_retire_batch(conn: sqlite3.Connection, user_id: int) -> str | None:
+    row = conn.execute(
+        "SELECT batch FROM retired_pins WHERE user_id = ? "
+        "ORDER BY retired_at DESC, rowid DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    return row["batch"] if row else None
+
+
+def undo_retire(conn: sqlite3.Connection, user_id: int, batch: str) -> int:
+    """Put a retired batch back, with the dates it was pinned on.
+
+    Restoring `pinned_at` rather than stamping now matters: the library sorts
+    by it, and an undo that reorders everything you own does not read as an
+    undo.
+    """
+    rows = conn.execute(
+        "SELECT series_id, pinned_at, notify FROM retired_pins "
+        "WHERE user_id = ? AND batch = ?",
+        (user_id, batch),
+    ).fetchall()
+    restored = 0
+    for row in rows:
+        cur = conn.execute(
+            """
+            INSERT INTO pins (user_id, series_id, pinned_at, notify)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (user_id, series_id) DO NOTHING
+            """,
+            (user_id, int(row["series_id"]), row["pinned_at"], int(row["notify"])),
+        )
+        if cur.rowcount:
+            refresh_pinned_flag(conn, int(row["series_id"]))
+            restored += 1
+    conn.execute(
+        "DELETE FROM retired_pins WHERE user_id = ? AND batch = ?", (user_id, batch)
+    )
+    return restored
+
+
+def prune_retired_pins(conn: sqlite3.Connection, older_than: str) -> int:
+    """Undo is a second thought, not an archive. Anything older goes."""
+    return conn.execute(
+        "DELETE FROM retired_pins WHERE retired_at < ?", (older_than,)
+    ).rowcount
 
 
 
@@ -1234,11 +1301,16 @@ def gaps(conn: sqlite3.Connection, user_id: int) -> list[tuple[sqlite3.Row, list
 
 
 def mark_watched(conn: sqlite3.Connection, user_id: int, plex_rating_key: str,
-                 season: int, episode: int, watched_at: str) -> bool:
+                 season: int, episode: int, watched_at: str,
+                 *, source: str = "plex") -> bool:
     """Record that one viewer has seen an episode. Earliest play wins.
 
     Per user, because everything else about a pin list is. Attributing one
     person's viewing to everybody would make "watched" mean less than nothing.
+
+    `source` is recorded rather than acted on. It is how you tell, later, why
+    a row is here — which mattered when two jobs were writing the same rows
+    and taking them back out again.
     """
     row = conn.execute(
         "SELECT e.id FROM episodes e JOIN series s ON s.id = e.series_id "
@@ -1250,12 +1322,13 @@ def mark_watched(conn: sqlite3.Connection, user_id: int, plex_rating_key: str,
 
     conn.execute(
         """
-        INSERT INTO episode_watches (user_id, episode_id, watched_at)
-        VALUES (?, ?, ?)
+        INSERT INTO episode_watches (user_id, episode_id, watched_at, source)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(user_id, episode_id) DO UPDATE SET
-            watched_at = MIN(episode_watches.watched_at, excluded.watched_at)
+            watched_at = MIN(episode_watches.watched_at, excluded.watched_at),
+            source = excluded.source
         """,
-        (user_id, int(row["id"]), watched_at),
+        (user_id, int(row["id"]), watched_at, source),
     )
     return True
 

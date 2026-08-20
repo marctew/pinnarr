@@ -18,6 +18,7 @@ from app.auth import purge_expired
 from app.db import session
 from app.jobs import tracked
 from app.media import cache_dir
+from app.repo import prune_retired_pins
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ POSTER_MAX_AGE_DAYS = 90
 
 #: Air-date moves are only news while they are recent.
 CHANGE_MAX_AGE_DAYS = 60
+
+#: How long a retired batch stays undoable. Long enough to notice you did
+#: not mean it, short enough that the table is not a second pin list.
+RETIRE_UNDO_DAYS = 30
 
 
 def prune_sync_log() -> int:
@@ -110,6 +115,12 @@ def prune_schedule_changes() -> int:
         ).rowcount
 
 
+def prune_retired() -> int:
+    cutoff = (datetime.now(UTC) - timedelta(days=RETIRE_UNDO_DAYS)).isoformat()
+    with session() as conn:
+        return prune_retired_pins(conn, cutoff)
+
+
 @tracked("housekeeping")
 async def housekeeping() -> str:
     with session() as conn:
@@ -117,8 +128,9 @@ async def housekeeping() -> str:
     prune_schedule_changes()
     runs = prune_sync_log()
     posters = prune_posters()
+    retired = prune_retired()
     compact()
     return (
         f"{sessions} expired session(s), {runs} old job run(s), "
-        f"{posters} cached poster(s) removed"
+        f"{posters} cached poster(s), {retired} expired undo(s) removed"
     )

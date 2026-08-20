@@ -9,6 +9,14 @@
 
 {% if flash %}<p class="flash ok">{{ flash }}</p>{% endif %}
 
+{% if can_undo %}
+  <p class="actions">
+    <button type="button" onclick="undoRetire()" id="undo">Undo the last retire</button>
+    <span class="hint">Puts them back with the dates you originally pinned them on.</span>
+  </p>
+  <p class="result" id="undo-result"></p>
+{% endif %}
+
 {% if not candidates %}
   <p class="empty">Nothing to retire. Every pin you have could still deliver
     something. <a href="/library?pinned=pinned">See your pins</a>.</p>
@@ -17,7 +25,8 @@
     <button type="button" class="primary" onclick="retireAll()">
       Unpin all {{ candidates|length }}
     </button>
-    <span class="hint">You can pin any of them again from the library.</span>
+    <span class="hint">Undoable straight afterwards, and you can pin any of
+      them again from the library.</span>
   </p>
   <p class="result" id="retire-result"></p>
 
@@ -44,7 +53,17 @@
     // The server re-runs the query rather than trusting a list of ids.
     const r = await fetch('/api/series/retire', { method: 'POST' });
     const data = await r.json();
-    document.getElementById('retire-result').textContent = data.retired + ' unpinned.';
+    document.getElementById('retire-result').textContent =
+      data.retired + ' unpinned. Reloading — the undo button is at the top.';
+    setTimeout(() => location.reload(), 900);
+  }
+
+  async function undoRetire() {
+    const btn = document.getElementById('undo');
+    btn.disabled = true;
+    const r = await fetch('/api/series/retire-undo', { method: 'POST' });
+    const data = await r.json();
+    document.getElementById('undo-result').textContent = data.restored + ' pinned again.';
     setTimeout(() => location.reload(), 700);
   }
 </script>

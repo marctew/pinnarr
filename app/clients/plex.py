@@ -10,6 +10,7 @@ import contextlib
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from app.clients.http import UpstreamError, request_json
@@ -91,6 +92,21 @@ class EpisodeView:
 
     watched: bool
     rating_key: str | None
+    #: When Plex last played it, ISO. None if Plex did not say — which it
+    #: does not for anything unwatched, and occasionally not for an episode
+    #: marked watched by hand rather than played.
+    viewed_at: str | None = None
+
+
+def _epoch_to_iso(value: Any) -> str | None:
+    """Plex timestamps are Unix seconds. Stamping "now" instead would date
+    every watch to whenever the sync happened to run."""
+    if not value:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value), UTC).isoformat()
+    except (TypeError, ValueError, OSError):
+        return None
 
 
 def _view_state(items: list[Any]) -> dict[tuple[int, int], EpisodeView]:
@@ -108,6 +124,7 @@ def _view_state(items: list[Any]) -> dict[tuple[int, int], EpisodeView]:
             state[(int(season), int(episode))] = EpisodeView(
                 watched=bool(item.get("viewCount")),
                 rating_key=str(item["ratingKey"]) if item.get("ratingKey") else None,
+                viewed_at=_epoch_to_iso(item.get("lastViewedAt")),
             )
     return state
 

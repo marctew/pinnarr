@@ -1,4 +1,16 @@
-"""Pull watch history so the library can be sorted by what you actually watch."""
+"""Pull watch history so the library can be sorted by what you actually watch.
+
+Two things come out of this, and only one of them is watch state.
+
+Per series, `last_watched_at` drives the library's "recently watched" sort.
+That is for everybody, always.
+
+Per episode, plays become watch rows — but only for accounts that have *not*
+given Pinnarr a personal Plex token. Where there is a token, Plex answers
+directly, and it is authoritative: the watch_state sweep clears anything Plex
+reports unwatched. Marking here too meant the two jobs took turns adding and
+deleting the same rows every hour. Exactly one source speaks per person.
+"""
 
 from __future__ import annotations
 
@@ -50,12 +62,22 @@ async def _sync(length: int) -> str:
         # Plex username → Pinnarr account. A play we cannot attribute is
         # dropped rather than credited to everyone: showing somebody else's
         # viewing as yours is worse than showing none.
-        accounts = {
-            str(r["plex_username"]).lower(): int(r["id"])
-            for r in conn.execute(
-                "SELECT id, plex_username FROM users WHERE plex_username IS NOT NULL"
-            )
-        }
+        #
+        # Anyone with a personal Plex token is left out. Plex speaks for them
+        # directly, and it is authoritative: the watch_state sweep clears
+        # whatever Plex reports unwatched. Marking here as well meant these
+        # two jobs took turns adding and deleting the same rows, on the hour,
+        # forever. One source per person, and the better one wins.
+        accounts = {}
+        deferred = 0
+        for r in conn.execute(
+            "SELECT id, plex_username, plex_token FROM users "
+            "WHERE plex_username IS NOT NULL"
+        ):
+            if (r["plex_token"] or "").strip():
+                deferred += 1
+                continue
+            accounts[str(r["plex_username"]).lower()] = int(r["id"])
 
         marked = 0
         unattributed = 0
@@ -67,7 +89,7 @@ async def _sync(length: int) -> str:
                 continue
             if mark_watched(
                 conn, user_id, play.grandparent_rating_key, play.season,
-                play.episode, play.watched_at,
+                play.episode, play.watched_at, source="tautulli",
             ):
                 marked += 1
             else:
@@ -85,4 +107,6 @@ async def _sync(length: int) -> str:
         note += (
             f"; {unattributed} play(s) from Plex accounts nobody here has claimed"
         )
+    if deferred:
+        note += f"; {deferred} account(s) left to Plex, which speaks for them directly"
     return note

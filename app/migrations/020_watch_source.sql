@@ -1,0 +1,12 @@
+-- Two jobs wrote these rows and neither could tell the other's apart.
+--
+-- plex_watched ran at :40 and deleted anything Plex reported unwatched;
+-- tautulli_recent ran at :50 and re-marked from play history. Any watch
+-- Tautulli knew about and Plex did not reflect flickered on and off, every
+-- hour, forever.
+--
+-- Recording the source does not by itself fix that — the fix is that Plex
+-- now speaks alone for anyone who has given Pinnarr a personal token — but
+-- without it there is no way to see which source put a row here, which is
+-- what made the oscillation invisible in the first place.
+ALTER TABLE episode_watches ADD COLUMN source TEXT NOT NULL DEFAULT 'plex';

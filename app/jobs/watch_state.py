@@ -13,6 +13,11 @@ series honest.
 Plex is authoritative for whatever it returns: watched episodes are recorded
 and unwatched ones cleared. Adding only would let a stale play record outlive
 the state it came from, and nothing could ever become un-watched.
+
+Because clearing is unconditional, this job has to be the only one writing
+watch rows for the people it covers — which is anyone who has supplied a
+personal token. The Tautulli sync steps aside for them and handles everyone
+else. Two authorities over one row is not a merge, it is a flicker.
 """
 
 from __future__ import annotations
@@ -46,7 +51,11 @@ def _apply(user_id: int, series_key: str, state: dict) -> tuple[int, int]:
             if view.rating_key:
                 set_episode_plex_key(conn, series_key, season, episode, view.rating_key)
             if view.watched:
-                if mark_watched(conn, user_id, series_key, season, episode, utcnow()):
+                # Plex's own timestamp where it has one. Stamping "now" dated
+                # every watch to whenever the sweep ran, which made the
+                # library's "last watched" column a clock, not a history.
+                if mark_watched(conn, user_id, series_key, season, episode,
+                                view.viewed_at or utcnow(), source="plex"):
                     marked += 1
             elif unmark_watched(conn, user_id, series_key, season, episode):
                 cleared += 1

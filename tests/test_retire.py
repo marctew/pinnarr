@@ -296,3 +296,144 @@ def test_a_partial_sync_is_admitted_rather_than_implied(client, admin_token):
 
 def test_with_nothing_pinned_it_says_so(client):
     assert "Pin something first" in client.get("/gaps").text
+
+
+# ── Undo ──
+
+
+def pin_ids(conn, user_id):
+    return {int(r["series_id"]) for r in conn.execute(
+        "SELECT series_id FROM pins WHERE user_id = ?", (user_id,))}
+
+
+def test_a_retire_can_be_undone(client, admin_token):
+    """One click unpins every finished show at once. Before this it was
+    irreversible while claiming in its own docstring not to be."""
+    _, user_id = admin_token
+    with session() as conn:
+        a = add(conn, "Severance", pinned_by=user_id)
+        b = add(conn, "Dark", pinned_by=user_id)
+
+    assert client.post("/api/series/retire").json()["retired"] == 2
+    with session() as conn:
+        assert pin_ids(conn, user_id) == set()
+
+    assert client.post("/api/series/retire-undo").json()["restored"] == 2
+    with session() as conn:
+        assert pin_ids(conn, user_id) == {a, b}
+
+
+def test_undo_restores_the_original_pin_date(client, admin_token):
+    """The library sorts by it. An undo that reorders your shelf is not one."""
+    _, user_id = admin_token
+    original = "2024-03-01T12:00:00+00:00"
+    with session() as conn:
+        sid = add(conn, "Severance", pinned_by=user_id)
+        conn.execute(
+            "UPDATE pins SET pinned_at = ?, notify = 0 WHERE series_id = ?",
+            (original, sid),
+        )
+
+    client.post("/api/series/retire")
+    client.post("/api/series/retire-undo")
+
+    with session() as conn:
+        row = conn.execute(
+            "SELECT pinned_at, notify FROM pins WHERE series_id = ?", (sid,)
+        ).fetchone()
+    assert row["pinned_at"] == original
+    assert row["notify"] == 0
+
+
+def test_undo_restores_the_denormalised_flag(client, admin_token):
+    """series.pinned drives every sync job. Leaving it at 0 would quietly
+    stop Sonarr tags and the calendar window for a restored show."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = add(conn, "Severance", pinned_by=user_id)
+    client.post("/api/series/retire")
+    client.post("/api/series/retire-undo")
+    with session() as conn:
+        assert conn.execute(
+            "SELECT pinned FROM series WHERE id = ?", (sid,)
+        ).fetchone()["pinned"] == 1
+
+
+def test_undo_takes_the_most_recent_batch_only(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        first = add(conn, "Severance", pinned_by=user_id)
+    client.post("/api/series/retire")
+    with session() as conn:
+        second = add(conn, "Dark", pinned_by=user_id)
+    client.post("/api/series/retire")
+
+    assert client.post("/api/series/retire-undo").json()["restored"] == 1
+    with session() as conn:
+        assert pin_ids(conn, user_id) == {second}
+        assert first not in pin_ids(conn, user_id)
+
+
+def test_undoing_twice_walks_back_through_the_batches(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        a = add(conn, "Severance", pinned_by=user_id)
+    client.post("/api/series/retire")
+    with session() as conn:
+        b = add(conn, "Dark", pinned_by=user_id)
+    client.post("/api/series/retire")
+
+    client.post("/api/series/retire-undo")
+    client.post("/api/series/retire-undo")
+    with session() as conn:
+        assert pin_ids(conn, user_id) == {a, b}
+
+
+def test_undo_with_nothing_to_undo_is_not_an_error(client):
+    r = client.post("/api/series/retire-undo")
+    assert r.status_code == 200
+    assert r.json()["restored"] == 0
+
+
+def test_one_persons_undo_cannot_restore_anothers_pins(db, account):
+    from app.repo import latest_retire_batch, retire, undo_retire
+
+    _, marc = account()
+    _, bob = account("bob", "user")
+    with session() as conn:
+        sid = add(conn, "Severance", pinned_by=marc)
+        conn.execute(
+            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+            (bob, sid, utcnow()),
+        )
+        retire(conn, marc, [sid])
+        assert latest_retire_batch(conn, bob) is None
+        assert undo_retire(conn, bob, "whatever") == 0
+        assert pin_ids(conn, bob) == {sid}
+
+
+def test_the_undo_button_only_shows_when_there_is_something_to_undo(client, admin_token):
+    _, user_id = admin_token
+    assert "Undo the last retire" not in client.get("/retire").text
+    with session() as conn:
+        add(conn, "Severance", pinned_by=user_id)
+    client.post("/api/series/retire")
+    assert "Undo the last retire" in client.get("/retire").text
+
+
+def test_housekeeping_expires_old_undos(db, admin_token):
+    """Undo is a second thought, not an archive."""
+    from app.jobs.housekeeping import RETIRE_UNDO_DAYS, prune_retired
+
+    _, user_id = admin_token
+    from app.repo import latest_retire_batch, retire
+
+    with session() as conn:
+        sid = add(conn, "Severance", pinned_by=user_id)
+        retire(conn, user_id, [sid])
+        stale = (datetime.now(UTC) - timedelta(days=RETIRE_UNDO_DAYS + 1)).isoformat()
+        conn.execute("UPDATE retired_pins SET retired_at = ?", (stale,))
+
+    assert prune_retired() == 1
+    with session() as conn:
+        assert latest_retire_batch(conn, user_id) is None

@@ -10,8 +10,9 @@ Pinnarr is the curation layer. You pin a handful of shows; you get a calendar of
 their upcoming episodes and a push notification the moment an episode actually
 lands in Plex and is watchable.
 
-> **Status: early development.** Not yet usable. See [SPEC.md](SPEC.md) for the
-> full design and [the roadmap](#roadmap) for what's built so far.
+> **Status: in use, single-household.** Running daily against a real Plex,
+> Sonarr and Tautulli. See [SPEC.md](SPEC.md) for the full design and
+> [the roadmap](#roadmap) for what is and isn't built.
 
 ---
 
@@ -128,15 +129,25 @@ uvicorn app.main:app --reload --port 8737
 
 ## Roadmap
 
-- [x] Schema, migrations, config
+Built:
+
+- [x] Schema, migrations, database-backed config with an admin panel
 - [x] Plex / Sonarr / Tautulli / TMDB / ntfy clients
 - [x] Season outlook engine
 - [x] Sync jobs, scheduler and series identity resolution
 - [x] Arrival notifications, reconcile pass and weekly digest
-- [ ] Calendar view
-- [ ] Library browser with faceted filtering and bulk pin
-- [ ] Sonarr webhook receiver (`/hooks/sonarr`)
-- [ ] Poster proxy route (`/poster/{id}`)
+- [x] Calendar — month grid, agenda, and live download progress
+- [x] Library browser with faceted filtering and bulk pin
+- [x] Sonarr webhook receiver (`/hooks/sonarr`)
+- [x] Poster proxy route (`/poster/{id}`)
+- [x] Accounts: admin-created users, per-user pins, notifications and watch state
+- [x] Two-way pin sync with Sonarr tags and the Plex Watchlist
+- [x] Per-episode watch state from Plex, with Tautulli filling in play times
+- [x] Ready to watch, gaps, retire and discover
+- [x] Backup and restore
+
+Not built:
+
 - [ ] Radarr digital-release track (movies, GB region)
 - [ ] iCal feed of pinned episodes
 
