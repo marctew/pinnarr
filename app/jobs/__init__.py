@@ -77,6 +77,7 @@ def build_scheduler() -> AsyncIOScheduler:
     nightly(3, 10, sonarr_sync.sync_sonarr_series, "sonarr_series")
     nightly(3, 20, tautulli_sync.sync_tautulli_history, "tautulli_history")
     nightly(3, 30, tmdb_sync.sync_outlook, "tmdb_status")
+    nightly(2, 45, watch_state.sync_all_watch_state, "plex_watched_full")
     nightly(3, 15, guides.refresh_pinned_guides, "pinned_guides")
     nightly(3, 35, suggest.refresh_suggestions, "suggestions")
     nightly(3, 40, notifications.notify_schedule_changes, "schedule_changes")

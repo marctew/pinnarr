@@ -202,6 +202,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `tautulli_history` | 03:20 nightly | Watch state per series and per episode, attributed per user |
 | `tautulli_recent` | hourly | The last 200 plays, so viewing shows up the same evening |
 | `plex_watched` | hourly | Watched state straight from Plex, per user — catches the toggle |
+| `plex_watched_full` | 02:45 nightly | The whole library, swept by section rather than by show |
 | `tmdb_status` | 03:30 nightly | Production status for pinned series; recompute `outlook` for all |
 | `plex_availability` | hourly | For pinned series only: confirm recent episodes are present in Plex |
 | `sonarr_queue` | every minute | What is downloading right now |

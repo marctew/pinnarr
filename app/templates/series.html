@@ -111,8 +111,17 @@
             {# Watched supersedes availability: you cannot have watched
                something that was not there, and where you are up to is the
                more useful thing for the row to say. #}
+            {% set watch_url = plex_episode(ep.plex_rating_key) %}
             {% if ep.watched %}
-              <span class="pill watched" title="{{ ep.label }}">✓ watched</span>
+              {% if watch_url %}
+                <a class="pill watched" href="{{ watch_url }}" target="_blank"
+                   rel="noopener noreferrer" title="{{ ep.label }} — open in Plex">✓ watched</a>
+              {% else %}
+                <span class="pill watched" title="{{ ep.label }}">✓ watched</span>
+              {% endif %}
+            {% elif watch_url and ep.state == "available" %}
+              <a class="pill" href="{{ watch_url }}" target="_blank"
+                 rel="noopener noreferrer" title="Open in Plex">{{ ep.mark }} {{ ep.label }}</a>
             {% else %}
               <span class="pill">{{ ep.mark }}
       {%- if ep.state == "downloading" and ep.progress %} {{ ep.progress|round|int }}%

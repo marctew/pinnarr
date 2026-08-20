@@ -42,7 +42,7 @@ from app.episodes import decorate, episode_state
 from app.episodes import parse as parse_dt
 from app.health import test_service
 from app.jobs import REGISTRY, build_scheduler
-from app.links import externals, missing_links
+from app.links import externals, missing_links, plex_episode
 from app.media import poster
 from app.repo import (
     PAGE_SIZE,
@@ -180,6 +180,7 @@ templates.env.globals.update(
     outlook_badge=labels.outlook_badge,
     status_label=labels.sonarr_status,
     relative_day=labels.relative_day,
+    plex_episode=plex_episode,
     duration=labels.duration,
     OUTLOOK=labels.OUTLOOK,
     SONARR_STATUS=labels.SONARR_STATUS,

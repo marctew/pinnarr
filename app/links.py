@@ -28,6 +28,16 @@ def plex(row: Any) -> str | None:
     return f"{base}/web/index.html#!/server/{machine}/details?key={path}"
 
 
+def plex_episode(rating_key: str | None) -> str | None:
+    """Deep link to one episode, given Plex's own id for it."""
+    machine = get_setting("plex_machine_id")
+    base = get_settings().plex_url
+    if not (rating_key and machine and base):
+        return None
+    path = quote(f"/library/metadata/{rating_key}", safe="")
+    return f"{base}/web/index.html#!/server/{machine}/details?key={path}"
+
+
 def sonarr(row: Any) -> str | None:
     """Sonarr routes its series pages by slug, not by id."""
     base = get_settings().sonarr_url

@@ -84,6 +84,34 @@ def _extract_ids(payload: dict[str, Any]) -> dict[str, Any]:
     return found
 
 
+@dataclass
+class EpisodeView:
+    """What Plex says about one episode: whether it has been watched, and its
+    own id, which is what a link into Plex needs."""
+
+    watched: bool
+    rating_key: str | None
+
+
+def _view_state(items: list[Any]) -> dict[tuple[int, int], EpisodeView]:
+    state: dict[tuple[int, int], EpisodeView] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        season = item.get("parentIndex")
+        episode = item.get("index")
+        if season is None or episode is None:
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            # viewCount counts completed plays. A part-watched episode has a
+            # viewOffset and no count, which is right: you have not seen it.
+            state[(int(season), int(episode))] = EpisodeView(
+                watched=bool(item.get("viewCount")),
+                rating_key=str(item["ratingKey"]) if item.get("ratingKey") else None,
+            )
+    return state
+
+
 class PlexClient:
     service = "plex"
 
@@ -192,7 +220,7 @@ class PlexClient:
         if not show.genres:
             show.genres = [g["tag"] for g in meta.get("Genre") or [] if g.get("tag")]
 
-    async def view_state(self, rating_key: str) -> dict[tuple[int, int], bool]:
+    async def view_state(self, rating_key: str) -> dict[tuple[int, int], EpisodeView]:
         """Every episode Plex returns for a show, and whether it is watched.
 
         Both halves matter. Plex holds the truth about watched state and
@@ -208,20 +236,39 @@ class PlexClient:
             **{"X-Plex-Container-Start": 0, "X-Plex-Container-Size": 2000},
         )
         items = (data or {}).get("MediaContainer", {}).get("Metadata", []) or []
-        state: dict[tuple[int, int], bool] = {}
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            season = item.get("parentIndex")
-            episode = item.get("index")
-            if season is None or episode is None:
-                continue
-            with contextlib.suppress(TypeError, ValueError):
-                # viewCount counts completed plays. A part-watched episode has
-                # a viewOffset and no count, which is right: you have not seen
-                # it yet.
-                state[(int(season), int(episode))] = bool(item.get("viewCount"))
-        return state
+        return _view_state(items)
+
+    async def section_view_state(
+        self, section_id: int, *, page: int = 2000
+    ) -> dict[str, dict[tuple[int, int], EpisodeView]]:
+        """View state for a whole library section, keyed by series.
+
+        One paged sweep instead of a request per show. At two thousand series
+        the per-show route is two thousand round trips for a nightly job, and
+        Plex will serve the lot in a handful of pages.
+        """
+        by_series: dict[str, dict[tuple[int, int], EpisodeView]] = {}
+        start = 0
+        while True:
+            data = await self._get(
+                f"/library/sections/{section_id}/all",
+                type=4,
+                **{"X-Plex-Container-Start": start, "X-Plex-Container-Size": page},
+            )
+            items = (data or {}).get("MediaContainer", {}).get("Metadata", []) or []
+            if not items:
+                break
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                show = item.get("grandparentRatingKey")
+                if show is None:
+                    continue
+                by_series.setdefault(str(show), {}).update(_view_state([item]))
+            if len(items) < page:
+                break
+            start += page
+        return by_series
 
     async def episode_keys_present(self, rating_key: str) -> set[tuple[int, int]]:
         """(season, episode) pairs actually present in Plex for one show.

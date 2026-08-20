@@ -1255,6 +1255,20 @@ def mark_watched(conn: sqlite3.Connection, user_id: int, plex_rating_key: str,
     return True
 
 
+def set_episode_plex_key(conn: sqlite3.Connection, series_key: str, season: int,
+                         episode: int, rating_key: str) -> None:
+    """Plex's own id for an episode, so a link can open the episode itself."""
+    conn.execute(
+        """
+        UPDATE episodes SET plex_rating_key = ?
+        WHERE season = ? AND episode = ?
+          AND series_id = (SELECT id FROM series WHERE plex_rating_key = ?)
+          AND (plex_rating_key IS NULL OR plex_rating_key != ?)
+        """,
+        (rating_key, season, episode, series_key, rating_key),
+    )
+
+
 def unmark_watched(conn: sqlite3.Connection, user_id: int, plex_rating_key: str,
                    season: int, episode: int) -> bool:
     """Forget that an episode was watched, because Plex says it wasn't."""

@@ -15,6 +15,7 @@ import respx
 from fastapi.testclient import TestClient
 
 from app import auth
+from app.clients.plex import EpisodeView
 from app.clients.tautulli import TautulliClient
 from app.config import save_settings
 from app.db import session, utcnow
@@ -470,7 +471,10 @@ async def test_plex_overrides_a_stale_play_record(db, admin_token, monkeypatch):
         mark_watched(conn, user_id, "9001", 1, 2, utcnow())
 
     async def state(_self, _key):
-        return {(1, 1): True, (1, 2): False}
+        return {
+            (1, 1): EpisodeView(watched=True, rating_key="11"),
+            (1, 2): EpisodeView(watched=False, rating_key="12"),
+        }
 
     monkeypatch.setattr(PlexClient, "view_state", state)
     detail = await sync_watch_state()
@@ -517,7 +521,12 @@ async def test_a_part_watched_episode_is_not_counted_as_seen(db, admin_token, mo
         conn.execute("UPDATE users SET plex_token = 'tok' WHERE id = ?", (user_id,))
 
     async def state(_self, _key):
-        return {(1, 1): True, (1, 2): False, (1, 3): False}
+        # E2 is part-watched in Plex: a viewOffset and no viewCount.
+        return {
+            (1, 1): EpisodeView(watched=True, rating_key="11"),
+            (1, 2): EpisodeView(watched=False, rating_key="12"),
+            (1, 3): EpisodeView(watched=False, rating_key="13"),
+        }
 
     monkeypatch.setattr(PlexClient, "view_state", state)
     await sync_watch_state()
@@ -527,3 +536,48 @@ async def test_a_part_watched_episode_is_not_counted_as_seen(db, admin_token, mo
     with session() as conn:
         nxt = next_unwatched(conn, user_id, sid)
     assert nxt["episode"] == 2
+
+
+async def test_the_episode_key_is_captured_for_linking(db, admin_token, monkeypatch):
+    """"in Plex" should open the episode, which needs Plex's own id for it."""
+    from app.clients.plex import PlexClient
+    from app.jobs.watch_state import sync_watch_state
+
+    _, user_id = admin_token
+    save_settings({"plex_url": "http://plex.lan:32400"})
+    with session() as conn:
+        seed(conn, user_id, episodes=(1,))
+        conn.execute("UPDATE users SET plex_token = 'tok' WHERE id = ?", (user_id,))
+
+    async def state(_self, _key):
+        return {(1, 1): EpisodeView(watched=True, rating_key="54321")}
+
+    monkeypatch.setattr(PlexClient, "view_state", state)
+    await sync_watch_state()
+
+    with session() as conn:
+        got = conn.execute(
+            "SELECT plex_rating_key FROM episodes WHERE season = 1 AND episode = 1"
+        ).fetchone()["plex_rating_key"]
+    assert got == "54321"
+
+
+def test_the_pill_links_into_plex_when_the_key_is_known(client, admin_token):
+    from app.db import set_setting
+
+    _, user_id = admin_token
+    save_settings({"plex_url": "http://plex.lan:32400"})
+    set_setting("plex_machine_id", "abc123")
+    with session() as conn:
+        sid = seed(conn, user_id, episodes=(1,))
+        conn.execute("UPDATE episodes SET plex_rating_key = '54321'")
+    body = client.get(f"/series/{sid}").text
+    assert "abc123" in body
+    assert "54321" in body
+
+
+def test_without_a_key_the_pill_is_plain_text(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = seed(conn, user_id, episodes=(1,))
+    assert 'class="pill"' in client.get(f"/series/{sid}").text
