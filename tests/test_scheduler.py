@@ -71,19 +71,19 @@ def test_the_login_page_links_the_stylesheet(db):
 def test_the_cache_key_follows_the_file_not_the_release(db, admin_token):
     """A version-pinned key would leave every browser on the old stylesheet
     after an edit, which is the "force refresh and it's still wrong" bug."""
-    from app import main
+    from app import web
 
     token, _ = admin_token
     with TestClient(app) as c:
         c.cookies.set(auth.COOKIE, token)
         body = c.get("/library").text
-    assert f"pinnarr.css?v={main.ASSET_VERSION}" in body
+    assert f"pinnarr.css?v={web.ASSET_VERSION}" in body
 
-    css = main.STATIC_DIR / "pinnarr.css"
+    css = web.STATIC_DIR / "pinnarr.css"
     before = css.read_bytes()
     try:
         css.write_bytes(before + b"/* edited */")
-        assert main._asset_version() != main.ASSET_VERSION
+        assert web._asset_version() != web.ASSET_VERSION
     finally:
         css.write_bytes(before)
-    assert main._asset_version() == main.ASSET_VERSION
+    assert web._asset_version() == web.ASSET_VERSION
