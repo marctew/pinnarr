@@ -258,3 +258,79 @@ def test_rows_show_the_air_time(client):
     with session() as conn:
         seed(conn, air_offset_days=3)
     assert '<span class="time">' in client.get("/").text
+
+
+# ── Unmonitored episodes ──
+
+
+def seed_unmonitored(conn, *, user_id=1, days=-5):
+    """A special the user told Sonarr not to fetch — it aired, and it is
+    never going to turn up."""
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO series (title, sort_title, pinned, outlook, created_at, updated_at) "
+        "VALUES ('Taskmaster', 'taskmaster', 1, 'dated', ?, ?)",
+        (now, now),
+    )
+    sid = int(cur.lastrowid)
+    air = datetime.now(UTC) + timedelta(days=days)
+    conn.execute(
+        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+        "has_file, in_plex, monitored, updated_at) "
+        "VALUES (?, 0, 304, 'My Ultimate Episode', ?, 0, 0, 0, ?)",
+        (sid, air.isoformat(), now),
+    )
+    conn.execute(
+        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+        (user_id, sid, now),
+    )
+    return sid
+
+
+def test_an_unmonitored_episode_reads_as_not_wanted_not_missing():
+    """Calling it missing cries wolf about the thing you decided against."""
+    row = {**ep(NOW - timedelta(days=9)), "monitored": 0}
+    assert episode_state(row, now=NOW) == "unmonitored"
+
+
+def test_an_unmonitored_episode_you_do_have_still_reads_as_available():
+    row = {**ep(NOW - timedelta(days=9), has_file=1), "monitored": 0}
+    assert episode_state(row, now=NOW) == AVAILABLE
+
+
+def test_unmonitored_episodes_are_hidden_from_the_calendar_by_default(client):
+    with session() as conn:
+        seed_unmonitored(conn)
+    assert "My Ultimate Episode" not in client.get("/").text
+
+
+def test_turning_the_setting_on_shows_them(client):
+    from app.config import save_settings
+
+    with session() as conn:
+        seed_unmonitored(conn)
+    save_settings({"show_unmonitored": "true"})
+    body = client.get("/").text
+    assert "My Ultimate Episode" in body
+    assert "not wanted" in body
+
+
+def test_they_never_appear_under_aired_not_arrived(client):
+    """Even shown, an episode nobody is chasing was never going to turn up."""
+    from app.config import save_settings
+
+    with session() as conn:
+        seed_unmonitored(conn)
+    save_settings({"show_unmonitored": "true"})
+    assert "Aired, not arrived" not in client.get("/").text
+
+
+def test_the_json_feed_honours_the_setting(client):
+    from app.config import save_settings
+
+    with session() as conn:
+        seed_unmonitored(conn, days=3)
+    assert client.get("/api/calendar").json()["episodes"] == []
+
+    save_settings({"show_unmonitored": "true"})
+    assert len(client.get("/api/calendar").json()["episodes"]) == 1

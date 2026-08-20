@@ -215,6 +215,14 @@ Derived at render time, not stored — so it's always correct without a migratio
 | `awaiting` | Aired, `!has_file`, < 48h ago | Amber — "expected soon" |
 | `missing` | Aired, `!has_file`, > 48h ago | Red — something's wrong |
 | `available` | `has_file` or `in_plex` | Green — watchable |
+| `unmonitored` | Sonarr isn't chasing it | Grey — "not wanted" |
+
+`unmonitored` is checked second, right after `available`. Sonarr keeps rows
+for episodes it will never fetch — specials you skipped, seasons you don't
+want — and they have real air dates. Calling those `missing` cries wolf about
+precisely the thing you decided against. They are hidden from the calendar by
+default (`show_unmonitored` in Settings) and never appear under "aired, not
+arrived" even when shown.
 
 The `missing` state is the one no existing tool surfaces well. "Aired four days ago and still isn't here" is exactly the thing you want to know, and Sonarr buries it under Wanted.
 

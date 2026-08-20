@@ -627,7 +627,12 @@ _EPISODE_SELECT = """
 
 
 def pinned_episodes(
-    conn: sqlite3.Connection, user_id: int, start: str, end: str
+    conn: sqlite3.Connection,
+    user_id: int,
+    start: str,
+    end: str,
+    *,
+    include_unmonitored: bool = True,
 ) -> list[sqlite3.Row]:
     """Pinned episodes airing in a window, chronological.
 
@@ -635,10 +640,12 @@ def pinned_episodes(
     pinned at render time (SPEC §8), so pinning takes effect immediately
     rather than waiting for a refetch.
     """
+    monitored = "" if include_unmonitored else " AND e.monitored = 1"
     return list(
         conn.execute(
             _EPISODE_SELECT
             + " WHERE e.air_date_utc >= ? AND e.air_date_utc < ?"
+            + monitored
             + " ORDER BY e.air_date_utc ASC, s.sort_title ASC",
             (user_id, start, end),
         )
@@ -653,6 +660,10 @@ def overdue_episodes(
     Bounded by `since` because an unbounded query resurfaces every gap in the
     back catalogue, which buries the two episodes that actually went missing
     this week.
+
+    Unmonitored episodes are excluded unconditionally, whatever the display
+    setting says. "Aired and never arrived" is only a complaint about
+    something you asked Sonarr to fetch.
     """
     return list(
         conn.execute(

@@ -75,6 +75,12 @@ class Settings(BaseModel):
     digest_enabled: bool = True
     digest_cron: str = "0 8 * * 1"
 
+    # ── Calendar ─────────────────────────────────
+    #: Sonarr keeps rows for episodes it is not chasing — specials you never
+    #: wanted, seasons you skipped. They are real broadcasts, so they are
+    #: stored either way; this decides whether they clutter the calendar.
+    show_unmonitored: bool = False
+
     # ── Outlook thresholds (SPEC §10) ────────────
     hiatus_months: int = 9
     dormant_months: int = 18

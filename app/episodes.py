@@ -19,6 +19,7 @@ AIRING_TODAY: Final = "airing_today"
 AWAITING: Final = "awaiting"
 MISSING: Final = "missing"
 AVAILABLE: Final = "available"
+UNMONITORED: Final = "unmonitored"
 
 #: How long after air time before absence stops being "any minute now" and
 #: starts being "something is wrong". Tunable per SPEC §17 if it grates.
@@ -30,6 +31,7 @@ LABELS: Final[dict[str, str]] = {
     AWAITING: "expected",
     MISSING: "not arrived",
     AVAILABLE: "in Plex",
+    UNMONITORED: "not wanted",
 }
 
 MARKS: Final[dict[str, str]] = {
@@ -38,6 +40,7 @@ MARKS: Final[dict[str, str]] = {
     AWAITING: "◐",
     MISSING: "✕",
     AVAILABLE: "●",
+    UNMONITORED: "–",
 }
 
 
@@ -49,6 +52,16 @@ def parse(value: str | None) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _field(row: Any, key: str, default: Any = None) -> Any:
+    """Tolerant lookup: rows arrive as sqlite3.Row here and plain dicts in
+    tests, and the two disagree about how a missing key fails."""
+    try:
+        value = row[key]
+    except (KeyError, IndexError):
+        return default
+    return default if value is None else value
 
 
 def episode_state(
@@ -64,13 +77,18 @@ def episode_state(
       with by definition — something airing at 21:00 is upcoming all day, and
       something that aired at 09:00 is technically awaiting by lunchtime.
       Neither is what you want the row to say.
+    - `unmonitored` comes next, because an episode Sonarr is not chasing will
+      never arrive by design. Calling that `missing` cries wolf about exactly
+      the thing you decided you did not want.
     """
     now = now or datetime.now(UTC)
-    has_file = bool(row["has_file"]) or bool(row["in_plex"])
-    air = parse(row["air_date_utc"])
+    has_file = bool(_field(row, "has_file")) or bool(_field(row, "in_plex"))
+    air = parse(_field(row, "air_date_utc"))
 
     if has_file:
         return AVAILABLE
+    if not _field(row, "monitored", 1):
+        return UNMONITORED
     if air is None:
         return UPCOMING
 

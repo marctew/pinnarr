@@ -804,7 +804,13 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
     window_end = max(grid_end, agenda_end, today + timedelta(days=LOOKAHEAD_DAYS)) + timedelta(days=1)
 
     with session() as conn:
-        rows = pinned_episodes(conn, user_id, window_start.isoformat(), window_end.isoformat())
+        rows = pinned_episodes(
+            conn,
+            user_id,
+            window_start.isoformat(),
+            window_end.isoformat(),
+            include_unmonitored=get_settings().show_unmonitored,
+        )
         overdue = overdue_episodes(
             conn,
             user_id,
@@ -913,7 +919,13 @@ async def calendar_json(
     finish = end or (today + timedelta(days=AGENDA_DAYS)).isoformat()
 
     with session() as conn:
-        rows = pinned_episodes(conn, int(request.state.user["id"]), begin, finish)
+        rows = pinned_episodes(
+            conn,
+            int(request.state.user["id"]),
+            begin,
+            finish,
+            include_unmonitored=get_settings().show_unmonitored,
+        )
 
     return JSONResponse(
         {
