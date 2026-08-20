@@ -12,6 +12,7 @@ import logging
 import sqlite3
 import uuid
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.clients.plex import PlexShow
@@ -253,11 +254,40 @@ def replace_genres(conn: sqlite3.Connection, series_id: int, names: list[str]) -
     )
 
 
+#: How recently an episode must have aired for a first sighting with a file
+#: to be believable as an arrival.
+ARRIVAL_GRACE_HOURS = 48
+
+
+def _plausibly_just_arrived(ep: SonarrEpisode) -> bool:
+    """Whether a first sighting can honestly be called an arrival.
+
+    A back catalogue we have simply never looked at before is not news. Only
+    something that aired in the last couple of days could plausibly have
+    landed in the window since we last synced.
+    """
+    if not ep.air_date_utc:
+        return False
+    try:
+        air = datetime.fromisoformat(ep.air_date_utc)
+    except ValueError:
+        return False
+    if air.tzinfo is None:
+        air = air.replace(tzinfo=UTC)
+    return air >= datetime.now(UTC) - timedelta(hours=ARRIVAL_GRACE_HOURS)
+
+
 def upsert_episode(conn: sqlite3.Connection, series_id: int, ep: SonarrEpisode) -> int:
     """Insert or update one episode.
 
-    arrived_at is stamped the first time we see has_file flip true, and never
-    moved afterwards — a quality upgrade must not look like a fresh arrival.
+    arrived_at means "we watched this become available", not "we first saw it
+    with a file". Those are the same thing for an episode we have been
+    tracking and wildly different for one we have not: pulling a six-season
+    back catalogue would otherwise stamp every episode as arriving today.
+
+    So it is set on an observed transition from no-file to file, or on a first
+    sighting only when the air date makes that believable. Once set it never
+    moves, so a quality upgrade cannot look like a fresh arrival.
     """
     existing = conn.execute(
         "SELECT id, has_file, arrived_at FROM episodes WHERE series_id = ? AND season = ? AND episode = ?",
@@ -265,9 +295,11 @@ def upsert_episode(conn: sqlite3.Connection, series_id: int, ep: SonarrEpisode) 
     ).fetchone()
 
     now = utcnow()
-    arrived_at = existing["arrived_at"] if existing else None
-    if ep.has_file and not arrived_at:
-        arrived_at = now
+    if existing:
+        became_available = bool(ep.has_file) and not existing["has_file"]
+        arrived_at = existing["arrived_at"] or (now if became_available else None)
+    else:
+        arrived_at = now if ep.has_file and _plausibly_just_arrived(ep) else None
 
     if existing:
         conn.execute(
