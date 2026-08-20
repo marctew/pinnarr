@@ -837,3 +837,58 @@ def latest_season(seasons: list[tuple[int, Any]]) -> int | None:
     if numbers:
         return max(numbers)
     return seasons[0][0] if seasons else None
+
+
+# ── Ready to watch ───────────────────────────────
+
+#: How far back "recently arrived" reaches. Long enough to cover a fortnight
+#: away, short enough that it stays a shortlist rather than an inventory.
+READY_DAYS = 21
+
+
+def ready_to_watch(
+    conn: sqlite3.Connection, user_id: int, since: str
+) -> list[tuple[sqlite3.Row, list[sqlite3.Row]]]:
+    """Pinned episodes that have arrived recently, grouped by series.
+
+    The calendar answers "what is coming"; this answers "what can I put on
+    tonight", which for anyone who watches after downloading is the question
+    they actually have.
+
+    Grouped by series because that is the unit of a viewing session — four
+    episodes of one show is one decision, not four.
+    """
+    rows = list(
+        conn.execute(
+            """
+            SELECT e.*, s.id AS series_id, s.title AS series_title, s.poster_url,
+                   s.remote_poster, s.outlook
+            FROM episodes e
+            JOIN series s ON s.id = e.series_id
+            JOIN pins p ON p.series_id = s.id AND p.user_id = ?
+            WHERE (e.has_file = 1 OR e.in_plex = 1)
+              AND e.arrived_at IS NOT NULL AND e.arrived_at >= ?
+            ORDER BY e.arrived_at DESC, e.season ASC, e.episode ASC
+            """,
+            (user_id, since),
+        )
+    )
+
+    grouped: dict[int, list[sqlite3.Row]] = {}
+    order: list[int] = []
+    for row in rows:
+        sid = int(row["series_id"])
+        if sid not in grouped:
+            grouped[sid] = []
+            order.append(sid)
+        grouped[sid].append(row)
+
+    series_rows = {}
+    if order:
+        marks = ",".join("?" * len(order))
+        series_rows = {
+            int(r["id"]): r
+            for r in conn.execute(f"SELECT * FROM series WHERE id IN ({marks})", order)
+        }
+    # `order` preserves newest-arrival-first, which the IN query does not.
+    return [(series_rows[sid], grouped[sid]) for sid in order if sid in series_rows]

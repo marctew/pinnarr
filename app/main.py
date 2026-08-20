@@ -35,6 +35,7 @@ from app.config import (
 )
 from app.db import last_runs, migrate, session
 from app.episodes import decorate, episode_state
+from app.episodes import parse as parse_dt
 from app.health import test_service
 from app.jobs import REGISTRY, build_scheduler
 from app.links import externals, missing_links
@@ -42,6 +43,7 @@ from app.media import poster
 from app.repo import (
     PAGE_SIZE,
     PIN_STATES,
+    READY_DAYS,
     SORTS,
     LibraryFilter,
     adopt_orphaned_pins,
@@ -64,6 +66,7 @@ from app.repo import (
     pinned_count,
     pinned_episodes,
     query_series,
+    ready_to_watch,
     section_titles,
     set_notify,
     set_pinned,
@@ -944,6 +947,43 @@ async def calendar_json(
                 for r in rows
             ],
         }
+    )
+
+
+@app.get("/ready")
+async def ready(request: Request):
+    """What has landed and is waiting, rather than what is coming.
+
+    The calendar is built around anticipation. This is the other half: for
+    anyone who watches after a download rather than on transmission, "what
+    can I put on now" is the question they actually have.
+    """
+    user_id = int(request.state.user["id"])
+    now, tz = _now_local()
+    since = (now - timedelta(days=READY_DAYS)).isoformat()
+
+    with session() as conn:
+        grouped = ready_to_watch(conn, user_id, since)
+
+    today = now.astimezone(tz).date()
+
+    def dress(episode: Any) -> dict[str, Any]:
+        row = decorate(episode, now=now, tz=str(tz))
+        arrived = parse_dt(episode["arrived_at"])
+        row["arrived"] = (
+            labels.relative_day(arrived.astimezone(tz).date(), today) if arrived else ""
+        )
+        return row
+
+    return templates.TemplateResponse(
+        request,
+        "ready.html",
+        {
+            "groups": [
+                (series, [dress(e) for e in episodes]) for series, episodes in grouped
+            ],
+            "days": READY_DAYS,
+        },
     )
 
 

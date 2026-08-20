@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Ready · Pinnarr{% endblock %}
+{% block nav_ready %}active{% endblock %}
+
+{% block content %}
+<h1>Ready to watch</h1>
+<p class="lede">Episodes from your pinned shows that landed in the last
+  {{ days }} days and are sitting in Plex.</p>
+
+{% if not groups %}
+  <p class="empty">Nothing new. Either you're caught up, or nothing you follow
+    has arrived recently — the <a href="/">calendar</a> shows what's coming.</p>
+{% endif %}
+
+{% for series, episodes in groups %}
+  <section class="ready">
+    <a class="art" href="/series/{{ series['id'] }}">
+      <img src="/poster/{{ series['id'] }}" alt="" loading="lazy" width="60" height="90">
+    </a>
+    <div class="body">
+      <h2>
+        <a href="/series/{{ series['id'] }}">{{ series['title'] }}</a>
+        <span class="count">{{ episodes|length }} episode{{ '' if episodes|length == 1 else 's' }}</span>
+      </h2>
+      <ul class="eps">
+        {% for ep in episodes %}
+          <li class="ep state-{{ ep.state }}">
+            <span class="when">{{ ep.arrived }}</span>
+            <span class="who"><span class="show">{{ ep.title or '—' }}</span></span>
+            <span class="code">{{ ep.code }}</span>
+            <span class="pill">{{ ep.mark }} {{ ep.label }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+{% endfor %}
+{% endblock %}

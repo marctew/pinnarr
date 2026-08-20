@@ -304,6 +304,21 @@
     font-size: 13px; padding: .2rem .55rem; border-radius: 999px;
     border: 1px solid var(--line); background: var(--panel);
   }
+  /* ── Ready to watch ── */
+  .ready {
+    display: grid; grid-template-columns: 60px 1fr; gap: 1rem; align-items: start;
+    padding: .9rem; margin-bottom: .6rem;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .ready .art img { width: 60px; height: 90px; object-fit: cover; border-radius: 5px; }
+  .ready .body { min-width: 0; }
+  .ready h2 { font-size: 15px; margin: 0 0 .3rem; display: flex; gap: .6rem;
+              align-items: baseline; text-transform: none; letter-spacing: 0; color: var(--ink); }
+  .ready h2 a { color: inherit; text-decoration: none; }
+  .ready h2 a:hover { color: var(--accent); }
+  .ready h2 .count { font-size: 12.5px; font-weight: 400; color: var(--muted); }
+  .ready .ep { padding-left: 0; padding-right: 0; }
+
   /* ── Season guide ── */
   .season {
     border: 1px solid var(--line); border-radius: 8px; margin-bottom: .5rem;
@@ -376,6 +391,7 @@
   <span class="brand">PINNARR</span>
   <nav>
     <a href="/" class="{% block nav_calendar %}{% endblock %}">Calendar</a>
+    <a href="/ready" class="{% block nav_ready %}{% endblock %}">Ready</a>
     <a href="/library" class="{% block nav_library %}{% endblock %}">Library</a>
     <a href="/discover" class="{% block nav_discover %}{% endblock %}">Discover</a>
     {% if current_user(request) and current_user(request)['role'] == 'admin' %}
