@@ -81,6 +81,7 @@ async def _sync_user(user: Any) -> str:
     to_unlist: list[int] = []
     pin_here: list[int] = []
     unpin_here: list[int] = []
+    no_identity = 0
 
     for series_id in pinned_ids | listed_ids | set(previous):
         pinned_now = series_id in pinned_ids
@@ -95,8 +96,11 @@ async def _sync_user(user: Any) -> str:
 
         if pin_changed or not list_changed:
             # A pin with no plex:// identity cannot be watchlisted — nothing
-            # in Discover corresponds to it.
+            # in Discover corresponds to it. Counted, not skipped quietly:
+            # a whole library can be in this state after an upgrade, and
+            # "in step" would be a lie.
             if pinned_now and not keys.get(series_id):
+                no_identity += 1
                 continue
             (to_list if pinned_now else to_unlist).append(series_id)
         else:
@@ -130,6 +134,11 @@ async def _sync_user(user: Any) -> str:
     )
     if unmatched:
         note += f" ({unmatched} watchlisted show(s) not in your library)"
+    if no_identity:
+        note += (
+            f" ({no_identity} pin(s) have no plex:// id yet — "
+            "run the plex_library job)"
+        )
     return note
 
 

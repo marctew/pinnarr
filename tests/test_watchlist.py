@@ -271,3 +271,17 @@ def test_the_test_button_reports_what_it_found(client):
     body = client.post("/api/profile/watchlist-test").json()
     assert body["ok"] is True
     assert "1 TV show" in body["message"]
+
+
+@respx.mock
+async def test_pins_with_no_plex_identity_are_counted_not_skipped_quietly(client, admin_token):
+    """plex_guid arrives with a Plex sync. Straight after an upgrade every
+    series lacks one, and reporting "in step" would be a lie."""
+    _, user_id = admin_token
+    with session() as conn:
+        add(conn, guid=None, pinned_by=user_id)
+    mock_plex()
+
+    detail = await sync_watchlist()
+    assert "no plex:// id yet" in detail
+    assert "run the plex_library job" in detail
