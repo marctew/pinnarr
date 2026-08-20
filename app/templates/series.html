@@ -78,7 +78,7 @@
         {% for ep in eps %}
           <li class="ep state-{{ ep.state }}">
             <span class="when">{% if ep.air_local %}{{ ep.air_local.strftime('%d %b %Y') }}{% else %}—{% endif %}</span>
-            <span class="who"><span class="show">{{ ep.title or '—' }}</span></span>
+            <span class="who"><span class="show">{{ ep.title or '—' }}</span>{% if ep.milestone %}<span class="milestone">{{ ep.milestone }}</span>{% endif %}</span>
             <span class="code">{{ ep.code }}</span>
             <span class="pill">{{ ep.mark }} {{ ep.label }}</span>
           </li>

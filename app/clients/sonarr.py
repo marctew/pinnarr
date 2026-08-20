@@ -44,6 +44,8 @@ class SonarrEpisode:
     runtime: int | None
     monitored: bool
     has_file: bool
+    #: Sonarr v4 labels these itself: "season" or "series".
+    finale_type: str | None = None
 
 
 def _poster_from(item: dict[str, Any]) -> str | None:
@@ -149,6 +151,7 @@ class SonarrClient:
                     runtime=series.get("runtime"),
                     monitored=bool(item.get("monitored")),
                     has_file=bool(item.get("hasFile")),
+                    finale_type=item.get("finaleType"),
                 )
             )
         return episodes
@@ -168,6 +171,7 @@ class SonarrClient:
                 runtime=None,
                 monitored=bool(item.get("monitored")),
                 has_file=bool(item.get("hasFile")),
+                finale_type=item.get("finaleType"),
             )
             for item in data or []
         ]

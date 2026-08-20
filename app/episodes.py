@@ -102,6 +102,26 @@ def episode_state(
     return AWAITING if now - air <= GRACE else MISSING
 
 
+def milestone(row: Any) -> str:
+    """"Premiere" or "finale", where it matters.
+
+    Sonarr labels finales itself; guessing from the highest episode number we
+    hold would be wrong most of the time, since the calendar window covers
+    only a couple of months. Specials are never either — a Christmas one-off
+    is not a season premiere.
+    """
+    if _field(row, "season", 1) == 0:
+        return ""
+    finale = (_field(row, "finale_type", "") or "").lower()
+    if finale == "series":
+        return "series finale"
+    if finale == "season":
+        return "finale"
+    if _field(row, "episode") == 1:
+        return "premiere"
+    return ""
+
+
 def decorate(row: Any, *, now: datetime | None = None, tz: str = "Europe/London") -> dict[str, Any]:
     """A row as the templates want it: state, label and mark alongside."""
     state = episode_state(row, now=now, tz=tz)
@@ -113,4 +133,5 @@ def decorate(row: Any, *, now: datetime | None = None, tz: str = "Europe/London"
         "mark": MARKS[state],
         "air_local": air.astimezone(ZoneInfo(tz)) if air else None,
         "code": f"S{row['season']:02d}E{row['episode']:02d}",
+        "milestone": milestone(row),
     }

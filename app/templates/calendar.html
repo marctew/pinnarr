@@ -10,6 +10,7 @@
     </a>
     <span class="who">
       <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
+      {% if ep.milestone %}<span class="milestone">{{ ep.milestone }}</span>{% endif %}
       {% if ep.title %}<span class="eptitle">{{ ep.title }}</span>{% endif %}
     </span>
     <span class="time">{{ ep.air_local.strftime('%H:%M') if ep.air_local }}</span>

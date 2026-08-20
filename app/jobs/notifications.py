@@ -294,3 +294,76 @@ async def notify_pending() -> str:
     if not sent and not waiting:
         return "nothing pending"
     return f"{sent} notification(s) sent, {waiting} group(s) still settling"
+
+
+def _describe_move(old: str | None, new: str | None, tz: str) -> str:
+    from zoneinfo import ZoneInfo
+
+    local = ZoneInfo(tz)
+
+    def show(value: str | None) -> str:
+        if not value:
+            return "no date"
+        try:
+            when = datetime.fromisoformat(value)
+        except ValueError:
+            return "no date"
+        when = when if when.tzinfo else when.replace(tzinfo=UTC)
+        return when.astimezone(local).strftime("%a %d %b")
+
+    return f"{show(old)} → {show(new)}"
+
+
+@tracked("schedule_changes")
+async def notify_schedule_changes() -> str:
+    """Tell people when a pinned episode's air date moves.
+
+    Sonarr updates dates quietly and nothing surfaces it, so a finale
+    slipping a week is invisible until it fails to turn up. Only genuine
+    moves reach this table — see repo._date_moved.
+    """
+    settings = get_settings()
+    cutoff = (datetime.now(UTC) - timedelta(hours=RECONCILE_WINDOW_HOURS)).isoformat()
+
+    with session() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id AS change_id, c.old_date, c.new_date,
+                   e.season, e.episode, s.title AS series_title,
+                   u.id AS user_id, u.ntfy_topic
+            FROM schedule_changes c
+            JOIN episodes e ON e.id = c.episode_id
+            JOIN series s ON s.id = e.series_id
+            JOIN pins p ON p.series_id = s.id AND p.notify = 1
+            JOIN users u ON u.id = p.user_id
+            WHERE c.detected_at >= ?
+              AND u.ntfy_topic IS NOT NULL AND u.ntfy_topic != ''
+              AND NOT EXISTS (
+                  SELECT 1 FROM change_notifications n
+                  WHERE n.user_id = u.id AND n.change_id = c.id
+              )
+            ORDER BY c.id
+            """,
+            (cutoff,),
+        ).fetchall()
+
+    sent = 0
+    for row in rows:
+        code = _episode_code(row["season"], row["episode"])
+        ok = await ntfy.send(
+            f"{row['series_title']} {code} has moved",
+            _describe_move(row["old_date"], row["new_date"], settings.tz),
+            tags="tv,calendar",
+            topic=row["ntfy_topic"],
+        )
+        if not ok:
+            continue
+        with session() as conn:
+            conn.execute(
+                "INSERT INTO change_notifications (user_id, change_id, notified_at) "
+                "VALUES (?, ?, ?) ON CONFLICT(user_id, change_id) DO NOTHING",
+                (row["user_id"], row["change_id"], utcnow()),
+            )
+        sent += 1
+
+    return f"{sent} schedule change(s) announced" if sent else "no schedule changes"

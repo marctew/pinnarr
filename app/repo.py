@@ -277,6 +277,27 @@ def _plausibly_just_arrived(ep: SonarrEpisode) -> bool:
     return air >= datetime.now(UTC) - timedelta(hours=ARRIVAL_GRACE_HOURS)
 
 
+def _date_moved(before: str | None, after: str | None) -> bool:
+    """Whether an air date changed in a way worth telling someone about.
+
+    Only a change of calendar day counts, and only into the future. Sonarr
+    nudges times by minutes routinely, and an episode that has already aired
+    moving on paper is bookkeeping rather than news.
+    """
+    if not before or not after or before == after:
+        return False
+    try:
+        was = datetime.fromisoformat(before)
+        now_at = datetime.fromisoformat(after)
+    except ValueError:
+        return False
+    was = was if was.tzinfo else was.replace(tzinfo=UTC)
+    now_at = now_at if now_at.tzinfo else now_at.replace(tzinfo=UTC)
+    if was.date() == now_at.date():
+        return False
+    return now_at > datetime.now(UTC)
+
+
 def upsert_episode(conn: sqlite3.Connection, series_id: int, ep: SonarrEpisode) -> int:
     """Insert or update one episode.
 
@@ -290,7 +311,8 @@ def upsert_episode(conn: sqlite3.Connection, series_id: int, ep: SonarrEpisode) 
     moves, so a quality upgrade cannot look like a fresh arrival.
     """
     existing = conn.execute(
-        "SELECT id, has_file, arrived_at FROM episodes WHERE series_id = ? AND season = ? AND episode = ?",
+        "SELECT id, has_file, arrived_at, air_date_utc FROM episodes "
+        "WHERE series_id = ? AND season = ? AND episode = ?",
         (series_id, ep.season, ep.episode),
     ).fetchone()
 
@@ -302,17 +324,24 @@ def upsert_episode(conn: sqlite3.Connection, series_id: int, ep: SonarrEpisode) 
         arrived_at = now if ep.has_file and _plausibly_just_arrived(ep) else None
 
     if existing:
+        if _date_moved(existing["air_date_utc"], ep.air_date_utc):
+            conn.execute(
+                "INSERT INTO schedule_changes (episode_id, old_date, new_date, detected_at) "
+                "VALUES (?, ?, ?, ?)",
+                (existing["id"], existing["air_date_utc"], ep.air_date_utc, now),
+            )
         conn.execute(
             """
             UPDATE episodes SET
                 sonarr_episode_id = COALESCE(?, sonarr_episode_id),
                 title = ?, air_date_utc = ?, runtime = COALESCE(?, runtime),
-                monitored = ?, has_file = ?, arrived_at = ?, updated_at = ?
+                monitored = ?, has_file = ?, arrived_at = ?, finale_type = ?, updated_at = ?
             WHERE id = ?
             """,
             (
                 ep.sonarr_episode_id, ep.title, ep.air_date_utc, ep.runtime,
-                int(ep.monitored), int(ep.has_file), arrived_at, now, existing["id"],
+                int(ep.monitored), int(ep.has_file), arrived_at, ep.finale_type,
+                now, existing["id"],
             ),
         )
         return int(existing["id"])
@@ -321,13 +350,14 @@ def upsert_episode(conn: sqlite3.Connection, series_id: int, ep: SonarrEpisode) 
         """
         INSERT INTO episodes (
             series_id, sonarr_episode_id, season, episode, title,
-            air_date_utc, runtime, monitored, has_file, arrived_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            air_date_utc, runtime, monitored, has_file, arrived_at,
+            finale_type, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             series_id, ep.sonarr_episode_id, ep.season, ep.episode, ep.title,
             ep.air_date_utc, ep.runtime, int(ep.monitored), int(ep.has_file),
-            arrived_at, now,
+            arrived_at, ep.finale_type, now,
         ),
     )
     return int(cur.lastrowid or 0)

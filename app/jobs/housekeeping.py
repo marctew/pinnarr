@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.auth import purge_expired
@@ -27,6 +28,9 @@ KEEP_RUNS = 100
 #: Cached posters untouched for this long are dropped. They cost one request
 #: to rebuild and only for a series someone actually looks at again.
 POSTER_MAX_AGE_DAYS = 90
+
+#: Air-date moves are only news while they are recent.
+CHANGE_MAX_AGE_DAYS = 60
 
 
 def prune_sync_log() -> int:
@@ -97,10 +101,20 @@ def compact() -> None:
         conn.close()
 
 
+def prune_schedule_changes() -> int:
+    """Announced moves are history once the episode has been and gone."""
+    cutoff = (datetime.now(UTC) - timedelta(days=CHANGE_MAX_AGE_DAYS)).isoformat()
+    with session() as conn:
+        return conn.execute(
+            "DELETE FROM schedule_changes WHERE detected_at < ?", (cutoff,)
+        ).rowcount
+
+
 @tracked("housekeeping")
 async def housekeeping() -> str:
     with session() as conn:
         sessions = purge_expired(conn)
+    prune_schedule_changes()
     runs = prune_sync_log()
     posters = prune_posters()
     compact()
