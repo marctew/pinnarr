@@ -206,6 +206,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `notify_pending` | every minute | Push settled arrival batches, one per series |
 | `schedule_changes` | 03:40 nightly | Announce air dates that have moved |
 | `sonarr_tags` | every 10 min | Two-way sync of pins and per-user Sonarr tags |
+| `plex_watchlist` | every 10 min | Two-way sync of pins and each user's Plex Watchlist |
 | `season_alerts` | Mon 09:00 | Nudge about unpinned shows that gained a date |
 | `reconcile` | 04:00 nightly | Catch anything the webhook missed; fire late notifications |
 | `housekeeping` | 04:30 nightly | Prune sync_log, expired sessions and stale posters |
@@ -566,6 +567,32 @@ wrong silently undoes whatever someone just did. So `tag_sync_state` records
 the last observed state of each pair, and whichever side changed since then
 wins. When both changed, Pinnarr wins — pinning is a deliberate act here and a
 side effect of housekeeping there.
+
+## 21. Pins and the Plex Watchlist
+
+Optional, off by default, and the third place Pinnarr writes outward.
+
+**The watchlist is not on your server.** It lives in Plex's cloud, attached to
+an *account*, so each Pinnarr user supplies their own Plex token in their
+profile and syncs against their own list. It also means this keeps working
+when the Plex Media Server is off.
+
+**The endpoints are undocumented.** `discover.provider.plex.tv` publishes no
+stable API. These are the same ones every other tool in this space uses, but
+they are reverse engineered and can change without notice — so every call
+fails softly and one user's failure does not stop the rest.
+
+**Matching is by `plex://` GUID.** The Discover rating key is the tail of that
+identity, so a series Plex has already matched needs no lookup to be
+watchlisted. `series.plex_guid` was previously parsed for its tvdb id and
+thrown away; it is now kept.
+
+**A watchlist entry is not a pin.** It often means "I'd like to watch this",
+including films and shows you do not own. Films are dropped, and a show that
+is not already in the library is **reported rather than pinned** — a pin with
+no episodes, no Sonarr entry and no artwork would be worse than none. That
+gap is what an *add to Sonarr* feature would fill, and it is a much larger
+boundary than this one.
 
 ## 18. Beyond v1
 

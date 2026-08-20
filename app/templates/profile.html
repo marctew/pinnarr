@@ -19,6 +19,21 @@
   </fieldset>
 
   <fieldset>
+    <legend>Plex Watchlist</legend>
+    <label>Your Plex token
+      <input type="password" name="plex_token" autocomplete="off"
+             placeholder="{{ '•••••••• saved — leave blank to keep'
+                            if current_user(request)['plex_token'] else 'not set' }}">
+      <p class="hint">The watchlist belongs to a Plex account rather than to the
+        server, so this is yours, not the one in Settings. With sync enabled,
+        pinning here adds the show to your watchlist and watchlisting there
+        pins it here — but only for shows already in the library.</p>
+    </label>
+    <button type="button" onclick="testWatchlist()">Test watchlist</button>
+    <div class="result" id="watchlist-result"></div>
+  </fieldset>
+
+  <fieldset>
     <legend>Password</legend>
     <label>New password
       <input type="password" name="password" autocomplete="new-password" minlength="8">
@@ -29,4 +44,16 @@
 
   <div class="bar"><button type="submit" class="primary">Save</button></div>
 </form>
+
+<script>
+  async function testWatchlist() {
+    const out = document.getElementById('watchlist-result');
+    out.className = 'result pending';
+    out.textContent = 'Asking Plex…';
+    const r = await fetch('/api/profile/watchlist-test', { method: 'POST' });
+    const data = await r.json();
+    out.className = 'result ' + (data.ok ? 'ok' : 'bad');
+    out.textContent = (data.ok ? '✓ ' : '✕ ') + data.message;
+  }
+</script>
 {% endblock %}

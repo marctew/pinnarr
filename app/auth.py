@@ -121,6 +121,14 @@ def set_topic(conn: sqlite3.Connection, user_id: int, topic: str) -> None:
     )
 
 
+def set_plex_token(conn: sqlite3.Connection, user_id: int, token: str) -> None:
+    """The account's own Plex token, for its own watchlist."""
+    conn.execute(
+        "UPDATE users SET plex_token = ?, updated_at = ? WHERE id = ?",
+        (token.strip() or None, utcnow(), user_id),
+    )
+
+
 def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
     conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
 

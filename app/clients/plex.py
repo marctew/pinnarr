@@ -44,6 +44,9 @@ class PlexShow:
     thumb: str | None = None
     tvdb_id: int | None = None
     tmdb_id: int | None = None
+    #: The plex://show/... identity, which is what Discover and the
+    #: watchlist key on.
+    plex_guid: str | None = None
     imdb_id: str | None = None
     genres: list[str] = field(default_factory=list)
 
@@ -74,6 +77,8 @@ def _extract_ids(payload: dict[str, Any]) -> dict[str, Any]:
     # Legacy: everything is in the top-level guid string.
     if primary := payload.get("guid"):
         absorb(str(primary))
+        if str(primary).startswith("plex://"):
+            found["plex_guid"] = str(primary)
 
     return found
 

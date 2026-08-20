@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 from app import __version__, auth, backup, labels
 from app import webhook as hooks
+from app.clients import watchlist as watchlist_client
 from app.clients.http import UpstreamError
 from app.clients.sonarr import SonarrClient
 from app.config import (
@@ -334,6 +335,7 @@ async def profile_save(request: Request):
     user = request.state.user
     topic = str(form.get("ntfy_topic", "")).strip()
     password = str(form.get("password", ""))
+    plex_token = str(form.get("plex_token", ""))
 
     if password and len(password) < 8:
         return RedirectResponse(
@@ -342,6 +344,9 @@ async def profile_save(request: Request):
 
     with session() as conn:
         auth.set_topic(conn, int(user["id"]), topic)
+        # An empty box means keep, as everywhere else a secret is edited.
+        if plex_token.strip():
+            auth.set_plex_token(conn, int(user["id"]), plex_token)
         if password:
             auth.set_password(conn, int(user["id"]), password)
 
@@ -478,6 +483,14 @@ async def series_notify(request: Request, series_id: int) -> JSONResponse:
             raise HTTPException(status_code=404, detail="you have not pinned that series")
         set_notify(conn, user_id, series_id, wanted)
     return JSONResponse({"id": series_id, "notify": wanted})
+
+
+@app.post("/api/profile/watchlist-test")
+async def watchlist_test(request: Request) -> JSONResponse:
+    """Check the signed-in user's own Plex token against their watchlist."""
+    with session() as conn:
+        row = auth.get_user(conn, int(request.state.user["id"]))
+    return JSONResponse(await watchlist_client.check(row["plex_token"] or ""))
 
 
 @app.get("/settings/backup")

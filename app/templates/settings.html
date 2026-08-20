@@ -54,6 +54,16 @@
              value="{{ s.plex_tv_sections | join(',') }}" placeholder="blank = auto-detect">
       <p class="hint">Comma separated. Test the connection to list what's there and tick them.</p>
     </label>
+    <label class="check">
+      <input type="hidden" name="plex_watchlist_sync" value="false">
+      <input type="checkbox" name="plex_watchlist_sync" value="true"
+             {{ 'checked' if s.plex_watchlist_sync }}>
+      Mirror pins to and from each user's Plex Watchlist
+    </label>
+    <p class="hint">The watchlist lives in Plex's cloud, not on your server, so
+      each account supplies its own token under <a href="/profile">Your
+      account</a>. Plex publishes no API for this — the endpoints work and are
+      widely used, but they are undocumented and could change.</p>
     {{ tester("plex", "Plex") }}
     <div class="sections" id="plex-sections"></div>
   </fieldset>

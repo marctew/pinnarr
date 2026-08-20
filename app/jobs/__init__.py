@@ -58,6 +58,7 @@ def build_scheduler() -> AsyncIOScheduler:
         tag_sync,
         tautulli_sync,
         tmdb_sync,
+        watchlist_sync,
     )
 
     settings = get_settings()
@@ -83,6 +84,11 @@ def build_scheduler() -> AsyncIOScheduler:
         id="sonarr_calendar", replace_existing=True, max_instances=1, coalesce=True,
     )
     # Often, and usually a no-op: it only acts once a batch has settled.
+    scheduler.add_job(
+        watchlist_sync.sync_watchlist,
+        CronTrigger(minute="*/10"),
+        id="plex_watchlist", replace_existing=True, max_instances=1, coalesce=True,
+    )
     scheduler.add_job(
         tag_sync.sync_tags,
         # Often enough that tagging in Sonarr feels like it did something.

@@ -132,6 +132,7 @@ def upsert_from_plex(conn: sqlite3.Connection, show: PlexShow) -> int:
         "plex_rating_key": show.rating_key,
         "plex_section_id": show.section_id,
         "poster_url": show.thumb,
+        "plex_guid": show.plex_guid,
         "in_plex": 1,
     }
 

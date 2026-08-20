@@ -50,6 +50,9 @@ class Settings(BaseModel):
     plex_url: str = ""
     plex_token: str = ""
     plex_tv_sections: list[int] = []
+    #: Mirror pins to and from each user's Plex Watchlist. Off by default: it
+    #: writes to a Plex account, and the endpoints are undocumented.
+    plex_watchlist_sync: bool = False
 
     # ── Sonarr ───────────────────────────────────
     sonarr_url: str = ""
