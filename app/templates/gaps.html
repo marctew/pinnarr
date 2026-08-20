@@ -15,7 +15,7 @@
   <ul class="risks">
     {% for item in risky %}
       <li class="risk">
-        <a class="who" href="/series/{{ item.series['id'] }}">{{ item.series['title'] }}</a>
+        <a class="who show" href="/series/{{ item.series['id'] }}">{{ item.series['title'] }}</a>
         <span class="reasons">
           {% for reason in item.reasons %}<span class="reason">{{ reason }}</span>{% endfor %}
         </span>

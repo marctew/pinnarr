@@ -14,7 +14,7 @@
   <ul class="queue">
     {% for r in rows %}
       <li class="dl{{ ' stalled' if r.stalled }}">
-        <a class="who" href="/series/{{ r['series_id'] }}">{{ r['series_title'] }}</a>
+        <a class="who show" href="/series/{{ r['series_id'] }}">{{ r['series_title'] }}</a>
         <span class="code">S{{ '%02d'|format(r['season']) }}E{{ '%02d'|format(r['episode']) }}</span>
         <span class="name">{{ r['episode_title'] or '—' }}</span>
         <span class="bar" title="{{ '%.1f'|format(r['percent']) }}%">

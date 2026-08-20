@@ -107,7 +107,7 @@
         <a class="art" href="/series/{{ r['series_id'] }}" tabindex="-1" aria-hidden="true">
           <img src="/poster/{{ r['series_id'] }}" alt="" loading="lazy">
         </a>
-        <a class="name" href="/series/{{ r['series_id'] }}">{{ r['title'] }}</a>
+        <a class="name show" href="/series/{{ r['series_id'] }}">{{ r['title'] }}</a>
         <span class="upto">
           S{{ '%02d'|format(r['season']) }}E{{ '%02d'|format(r['episode']) }}
           <span class="dim">{{ r['episode_title'] or '' }}</span>
