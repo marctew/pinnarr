@@ -1283,29 +1283,45 @@ async def refresh_episodes(request: Request, series_id: int) -> JSONResponse:
             upsert_episode(conn, series_id, episode)
         mark_episodes_synced(conn, series_id)
 
-    rated = await _pull_ratings(series_id, row["tmdb_id"], {e.season for e in episodes})
-    return JSONResponse({"id": series_id, "episodes": len(episodes), "rated": rated})
+    rated, note = await _pull_ratings(
+        series_id, row["tmdb_id"], {e.season for e in episodes}
+    )
+    return JSONResponse(
+        {"id": series_id, "episodes": len(episodes), "rated": rated, "ratings": note}
+    )
 
 
-async def _pull_ratings(series_id: int, tmdb_id: int | None, seasons: set[int]) -> int:
+async def _pull_ratings(
+    series_id: int, tmdb_id: int | None, seasons: set[int]
+) -> tuple[int, str]:
     """Episode scores from TMDB, alongside the Sonarr refresh.
 
-    Cosmetic, so a failure is swallowed rather than failing the refresh that
-    actually matters.
+    Cosmetic, so a failure never fails the refresh that actually matters —
+    but it says why rather than returning zero and leaving you to wonder
+    whether the feature exists.
     """
-    if not tmdb_id or not get_settings().tmdb_configured:
-        return 0
+    if not get_settings().tmdb_configured:
+        return 0, "no ratings: TMDB isn't configured"
+    if not tmdb_id:
+        return 0, "no ratings: this series has no TMDB id yet — run tmdb_status"
     client = TmdbClient()
     rated = 0
+    failed = 0
     for season in sorted(s for s in seasons if s > 0):
         try:
             scores = await client.season_ratings(int(tmdb_id), season)
         except Exception as exc:  # noqa: BLE001 — ratings never break a sync
             log.warning("ratings failed for series %s season %s: %s", series_id, season, exc)
+            failed += 1
             continue
         with session() as conn:
             rated += set_ratings(conn, series_id, season, scores)
-    return rated
+
+    if failed:
+        return rated, f"{rated} rated, {failed} season(s) TMDB could not answer for"
+    if not rated:
+        return 0, "no ratings: TMDB has no scores for this series"
+    return rated, f"{rated} episode(s) rated"
 
 
 @app.get("/series/{series_id}")

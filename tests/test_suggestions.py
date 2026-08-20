@@ -255,3 +255,75 @@ def test_the_calendar_rows_carry_an_episode_id_to_update(client, admin_token):
         sid = add(conn, "Silo", pinned_by=user_id)
         episode(conn, sid, 1, has_file=1)
     assert "data-episode=" in client.get("/").text
+
+
+# ── The refresh says what it did about ratings ──
+
+
+@respx.mock
+def test_a_series_with_no_tmdb_id_says_why_there_are_no_ratings(client, admin_token):
+    """Returning zero silently is how you end up wondering whether a feature
+    exists at all."""
+    save_settings({"sonarr_url": "http://sonarr.lan:8989", "sonarr_api_key": "k"})
+    respx.get("http://sonarr.lan:8989/api/v3/episode").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    with session() as conn:
+        sid = add(conn, "Silo", tmdb_id=None, sonarr_id=7)
+
+    body = client.post(f"/api/series/{sid}/episodes").json()
+    assert "no TMDB id" in body["ratings"]
+
+
+@respx.mock
+def test_without_tmdb_configured_it_says_so(client, admin_token):
+    save_settings({"tmdb_api_key": "", "sonarr_url": "http://sonarr.lan:8989",
+                   "sonarr_api_key": "k"})
+    respx.get("http://sonarr.lan:8989/api/v3/episode").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    with session() as conn:
+        sid = add(conn, "Silo", tmdb_id=95396, sonarr_id=7)
+
+    body = client.post(f"/api/series/{sid}/episodes").json()
+    assert "TMDB isn't configured" in body["ratings"]
+
+
+@respx.mock
+def test_a_successful_fetch_reports_the_count(client, admin_token):
+    save_settings({"sonarr_url": "http://sonarr.lan:8989", "sonarr_api_key": "k"})
+    respx.get("http://sonarr.lan:8989/api/v3/episode").mock(
+        return_value=httpx.Response(200, json=[
+            {"id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "E1",
+             "monitored": True, "hasFile": True},
+        ])
+    )
+    respx.get(f"{TMDB}/tv/95396/season/1").mock(
+        return_value=httpx.Response(200, json={"episodes": [
+            {"episode_number": 1, "vote_average": 8.4},
+        ]})
+    )
+    with session() as conn:
+        sid = add(conn, "Silo", tmdb_id=95396, sonarr_id=7)
+
+    body = client.post(f"/api/series/{sid}/episodes").json()
+    assert body["rated"] == 1
+    assert "1 episode(s) rated" in body["ratings"]
+
+
+@respx.mock
+def test_tmdb_having_no_scores_is_distinguished_from_a_failure(client, admin_token):
+    save_settings({"sonarr_url": "http://sonarr.lan:8989", "sonarr_api_key": "k"})
+    respx.get("http://sonarr.lan:8989/api/v3/episode").mock(
+        return_value=httpx.Response(200, json=[
+            {"id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "E1",
+             "monitored": True, "hasFile": False},
+        ])
+    )
+    respx.get(f"{TMDB}/tv/95396/season/1").mock(
+        return_value=httpx.Response(200, json={"episodes": []})
+    )
+    with session() as conn:
+        sid = add(conn, "Silo", tmdb_id=95396, sonarr_id=7)
+
+    assert "no scores" in client.post(f"/api/series/{sid}/episodes").json()["ratings"]

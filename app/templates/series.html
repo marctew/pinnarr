@@ -136,7 +136,8 @@
         return;
       }
       out.className = 'result ok';
-      out.textContent = '✓ ' + data.episodes + ' episodes. Reloading…';
+      out.textContent = '✓ ' + data.episodes + ' episodes'
+        + (data.ratings ? ' · ' + data.ratings : '') + '. Reloading…';
       location.reload();
     } catch (err) {
       out.className = 'result bad';
