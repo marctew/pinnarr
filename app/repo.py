@@ -1031,7 +1031,8 @@ def season_progress(conn: sqlite3.Connection, series_id: int) -> dict[int, dict[
                count(*) AS total,
                sum(CASE WHEN air_date_utc IS NOT NULL AND air_date_utc <= ?
                         THEN 1 ELSE 0 END) AS aired,
-               sum(CASE WHEN has_file = 1 OR in_plex = 1 THEN 1 ELSE 0 END) AS have
+               sum(CASE WHEN has_file = 1 OR in_plex = 1 THEN 1 ELSE 0 END) AS have,
+               sum(CASE WHEN in_plex = 1 THEN 1 ELSE 0 END) AS confirmed
         FROM episodes WHERE series_id = ? GROUP BY season
         """,
         (utcnow(), series_id),
@@ -1041,6 +1042,7 @@ def season_progress(conn: sqlite3.Connection, series_id: int) -> dict[int, dict[
             "total": int(r["total"]),
             "aired": int(r["aired"] or 0),
             "have": int(r["have"] or 0),
+            "confirmed": int(r["confirmed"] or 0),
         }
         for r in rows
     }
@@ -1064,8 +1066,9 @@ def plex_shortfall(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     failed scan, or a file Plex cannot read. Nothing else notices, and it is
     invisible until you go looking for an episode Sonarr insists is there.
 
-    Only meaningful for series the availability job has actually checked,
-    which is why it is scoped to pins with a Plex key.
+    Only meaningful for series the availability job has actually confirmed:
+    an unchecked series has in_plex = 0 everywhere, which says nothing about
+    Plex and would report the entire back catalogue as missing.
     """
     return list(
         conn.execute(
@@ -1076,7 +1079,9 @@ def plex_shortfall(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
             FROM series s
             JOIN pins p ON p.series_id = s.id AND p.user_id = ?
             JOIN episodes e ON e.series_id = s.id
-            WHERE s.plex_rating_key IS NOT NULL AND e.season > 0
+            WHERE s.plex_rating_key IS NOT NULL
+              AND s.plex_checked_at IS NOT NULL
+              AND e.season > 0
             GROUP BY s.id
             HAVING have_sonarr > have_plex
             ORDER BY (have_sonarr - have_plex) DESC, s.sort_title

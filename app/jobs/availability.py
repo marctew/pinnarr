@@ -63,4 +63,11 @@ async def sync_availability() -> str:
                 if is_present:
                     newly_present += 1
 
+            # Stamped only on a successful check, so a Plex outage cannot make
+            # a series look like one Plex genuinely does not hold.
+            conn.execute(
+                "UPDATE series SET plex_checked_at = ? WHERE id = ?",
+                (utcnow(), series["id"]),
+            )
+
     return f"{checked}/{len(pinned)} pinned series checked, {newly_present} episodes newly present"

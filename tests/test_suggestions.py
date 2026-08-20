@@ -28,12 +28,14 @@ def client(db, admin_token):
         yield c
 
 
-def add(conn, title, *, tmdb_id=None, pinned_by=None, plex_key=None, sonarr_id=None):
+def add(conn, title, *, tmdb_id=None, pinned_by=None, plex_key=None, sonarr_id=None,
+        checked=True):
     now = utcnow()
     cur = conn.execute(
         "INSERT INTO series (title, sort_title, tmdb_id, plex_rating_key, sonarr_id, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (title, title.lower(), tmdb_id, plex_key, sonarr_id, now, now),
+        "plex_checked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (title, title.lower(), tmdb_id, plex_key, sonarr_id,
+         now if checked else None, now, now),
     )
     sid = int(cur.lastrowid)
     if pinned_by:
@@ -358,3 +360,38 @@ def test_the_track_is_rendered_even_with_nothing_to_show(client, admin_token):
         sid = add(conn, "Silo", pinned_by=user_id, sonarr_id=7)
         episode(conn, sid, 1)
     assert 'class="progress"' in client.get(f"/series/{sid}").text
+
+
+def test_a_series_plex_has_never_been_asked_about_is_not_flagged(client, admin_token):
+    """The bug: in_plex is 0 both when Plex lacks a series and when the
+    availability job has not run yet, so a show pinned an hour ago was
+    reported as entirely missing from a Plex that has all of it."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = add(conn, "Ted Lasso", pinned_by=user_id, plex_key="1234", checked=False)
+        for number in (1, 2, 3):
+            episode(conn, sid, number, has_file=1, in_plex=0)
+    with session() as conn:
+        assert plex_shortfall(conn, user_id) == []
+
+
+def test_once_checked_a_genuine_shortfall_is_flagged(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = add(conn, "Ted Lasso", pinned_by=user_id, plex_key="1234", checked=True)
+        for number in (1, 2, 3):
+            episode(conn, sid, number, has_file=1, in_plex=0)
+    with session() as conn:
+        assert len(plex_shortfall(conn, user_id)) == 1
+
+
+def test_the_season_bar_does_not_claim_a_file_is_in_plex(client, admin_token):
+    """has_file and in_plex are different claims; the bar counts both, so it
+    says downloaded rather than in Plex."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = add(conn, "Ted Lasso", pinned_by=user_id, sonarr_id=7)
+        episode(conn, sid, 1, has_file=1, in_plex=0)
+    body = client.get(f"/series/{sid}").text
+    assert "1/1 downloaded" in body
+    assert "1/1 in Plex" not in body
