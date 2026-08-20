@@ -202,7 +202,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `tautulli_history` | 03:20 nightly | Update `last_watched_at` per series |
 | `tmdb_status` | 03:30 nightly | Production status for pinned series; recompute `outlook` for all |
 | `plex_availability` | hourly | For pinned series only: confirm recent episodes are present in Plex |
-| `sonarr_queue` | every 5 min | What is downloading right now |
+| `sonarr_queue` | every minute | What is downloading right now |
 | `notify_pending` | every minute | Push settled arrival batches, one per series |
 | `schedule_changes` | 03:40 nightly | Announce air dates that have moved |
 | `season_alerts` | Mon 09:00 | Nudge about unpinned shows that gained a date |

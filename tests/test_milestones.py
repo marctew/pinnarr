@@ -185,3 +185,22 @@ async def test_nobody_hears_about_a_show_they_have_not_pinned(db, admin_token, p
 
     assert "no schedule changes" in await notify_schedule_changes()
     assert pushes == []
+
+
+def test_a_premiere_is_badged_on_the_calendar(db, admin_token):
+    from fastapi.testclient import TestClient
+
+    from app import auth
+    from app.main import app
+
+    _, user_id = admin_token
+    with session() as conn:
+        sid = add_series(conn, pinned_by=user_id)
+        upsert_episode(conn, sid, episode(datetime.now(UTC) + timedelta(days=3), number=1))
+
+    token, _ = admin_token
+    with TestClient(app) as c:
+        c.cookies.set(auth.COOKIE, token)
+        body = c.get("/").text
+    assert 'class="milestone"' in body
+    assert "premiere" in body

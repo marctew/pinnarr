@@ -229,9 +229,12 @@
   .ep .show { color: var(--ink); text-decoration: none; font-weight: 600; }
   .ep .show:hover { color: var(--accent); }
   .milestone {
-    font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
-    padding: .1rem .35rem; border-radius: 4px; margin-left: .45rem;
-    background: var(--accent); color: #fff; vertical-align: middle;
+    /* .who is a flex column, so without this the badge stretches the full
+       width of the row and reads as a banner rather than a label. */
+    align-self: flex-start;
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em;
+    line-height: 1.5; padding: 0 .3rem; border-radius: 3px; margin-top: .12rem;
+    border: 1px solid var(--accent); color: var(--accent); background: none;
   }
   .ep .eptitle {
     color: var(--muted); font-size: 12.5px;

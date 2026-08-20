@@ -84,7 +84,9 @@ def build_scheduler() -> AsyncIOScheduler:
     # Often, and usually a no-op: it only acts once a batch has settled.
     scheduler.add_job(
         queue_sync.sync_queue,
-        CronTrigger(minute="*/5"),
+        # Every minute: a progress bar that updates every five is a
+        # screenshot, not progress. One LAN call a minute is cheap.
+        CronTrigger(minute="*"),
         id="sonarr_queue", replace_existing=True, max_instances=1, coalesce=True,
     )
     scheduler.add_job(
