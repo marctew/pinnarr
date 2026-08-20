@@ -395,8 +395,10 @@
   .season > summary .heat {
     grid-column: 1 / -1; display: flex; gap: 1px; margin-top: .1rem;
   }
-  .season > summary .heat .tick { width: 5px; height: 12px; border-radius: 1px;
-                                  background: var(--line); }
+  /* Every rule here carries the same weight. The base used to be
+     `.season > summary .heat .tick`, which outranked `.heat .tick.r8` and
+     painted the whole strip grey whatever the scores were. */
+  .heat .tick { width: 5px; height: 12px; border-radius: 1px; background: var(--line); }
   /* TMDB scores cluster between 6 and 9, so the ramp is tight where it counts. */
   .heat .tick.r0 { background: var(--line); }
   .heat .tick.r1, .heat .tick.r2, .heat .tick.r3,

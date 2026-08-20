@@ -292,3 +292,32 @@ def test_a_fully_watched_show_says_so(client, admin_token):
         for number in (1, 2, 3):
             mark_watched(conn, user_id, "9001", 1, number, utcnow())
     assert "✓ watched" in client.get("/library").text
+
+
+async def test_your_own_play_for_an_unsynced_episode_is_counted(db, admin_token, monkeypatch):
+    """Silently dropping your own history is how "nothing shows as watched"
+    happens with no way to find out why."""
+    from app.clients.tautulli import EpisodePlay
+    from app.jobs import tautulli_sync
+
+    _, user_id = admin_token
+    save_settings({"tautulli_url": TAUTULLI, "tautulli_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id, episodes=(1,))
+        conn.execute("UPDATE users SET plex_username = 'mltew' WHERE id = ?", (user_id,))
+
+    async def no_series(_self, length=2000):
+        return {}
+
+    async def plays(_self, length=2000):
+        return [
+            EpisodePlay("9001", 1, 1, utcnow(), viewer="mltew"),
+            EpisodePlay("9001", 7, 9, utcnow(), viewer="mltew"),
+        ]
+
+    monkeypatch.setattr(TautulliClient, "last_watched_by_show", no_series)
+    monkeypatch.setattr(TautulliClient, "watched_episodes", plays)
+
+    detail = await tautulli_sync.sync_tautulli_history()
+    assert "1 episode(s) watched" in detail
+    assert "1 of yours are for episodes not synced here" in detail

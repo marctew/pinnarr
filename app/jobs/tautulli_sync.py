@@ -42,6 +42,7 @@ async def sync_tautulli_history() -> str:
 
         marked = 0
         unattributed = 0
+        not_held = 0
         for play in plays:
             user_id = accounts.get((play.viewer or "").lower())
             if user_id is None:
@@ -52,8 +53,17 @@ async def sync_tautulli_history() -> str:
                 play.episode, play.watched_at,
             ):
                 marked += 1
+            else:
+                # Yours, but for an episode Pinnarr holds no row for: the
+                # episode tables only cover the calendar window plus the full
+                # guides of pinned series. Counted, because silently dropping
+                # your own history is how "nothing shows as watched" happens
+                # with no way to find out why.
+                not_held += 1
 
     note = f"{len(newest or {})} series with history, {marked} episode(s) watched"
+    if not_held:
+        note += f"; {not_held} of yours are for episodes not synced here"
     if unattributed:
         note += (
             f"; {unattributed} play(s) from Plex accounts nobody here has claimed"
