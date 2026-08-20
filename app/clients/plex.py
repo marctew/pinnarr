@@ -6,6 +6,7 @@ integrations end up doing.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from dataclasses import dataclass, field
@@ -86,10 +87,12 @@ def _extract_ids(payload: dict[str, Any]) -> dict[str, Any]:
 class PlexClient:
     service = "plex"
 
-    def __init__(self) -> None:
+    def __init__(self, token: str | None = None) -> None:
         s = get_settings()
         self.base = s.plex_url
-        self.token = s.plex_token
+        # View state is per Plex account, so callers that care whose it is
+        # pass that person's token instead of the server-wide one.
+        self.token = token or s.plex_token
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -188,6 +191,28 @@ class PlexClient:
                 setattr(show, key, value)
         if not show.genres:
             show.genres = [g["tag"] for g in meta.get("Genre") or [] if g.get("tag")]
+
+    async def watched_episodes(self, rating_key: str) -> set[tuple[int, int]]:
+        """(season, episode) pairs this token's account has watched.
+
+        Plex holds the truth about watched state; Tautulli holds a log of
+        plays. They differ whenever somebody marks an episode watched without
+        playing it, which is a normal thing to do and produces no history at
+        all.
+        """
+        data = await self._get(f"/library/metadata/{rating_key}/allLeaves")
+        items = (data or {}).get("MediaContainer", {}).get("Metadata", []) or []
+        seen: set[tuple[int, int]] = set()
+        for item in items:
+            if not isinstance(item, dict) or not item.get("viewCount"):
+                continue
+            season = item.get("parentIndex")
+            episode = item.get("index")
+            if season is None or episode is None:
+                continue
+            with contextlib.suppress(TypeError, ValueError):
+                seen.add((int(season), int(episode)))
+        return seen
 
     async def episode_keys_present(self, rating_key: str) -> set[tuple[int, int]]:
         """(season, episode) pairs actually present in Plex for one show.

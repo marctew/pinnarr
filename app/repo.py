@@ -510,7 +510,10 @@ PAGE_SIZE = 60
 
 SORTS: dict[str, str] = {
     # NULLs sort smallest in SQLite, so DESC already puts never-watched last.
-    "recent": "s.last_watched_at DESC, s.sort_title ASC",
+    # Yours, not the household's. last_watched_at is set from anyone's
+    # viewing, which made the order reflect the house while the badge beside
+    # it reflected you.
+    "recent": "mine_watched DESC, s.last_watched_at DESC, s.sort_title ASC",
     "title": "s.sort_title ASC",
     # ...but ASC would put undated first, which is the opposite of useful.
     "next": "s.next_airing IS NULL, s.next_airing ASC",
@@ -619,9 +622,12 @@ def query_series(conn: sqlite3.Connection, f: LibraryFilter) -> list[sqlite3.Row
     return list(
         conn.execute(
             f"SELECT s.*, {_rank_case()} AS outlook_rank, "
-            "EXISTS (SELECT 1 FROM pins p WHERE p.series_id = s.id AND p.user_id = ?) AS is_pinned "
+            "EXISTS (SELECT 1 FROM pins p WHERE p.series_id = s.id AND p.user_id = ?) AS is_pinned, "
+            "(SELECT MAX(w.watched_at) FROM episode_watches w "
+            " JOIN episodes e ON e.id = w.episode_id "
+            " WHERE e.series_id = s.id AND w.user_id = ?) AS mine_watched "
             f"FROM series s{sql} ORDER BY {order} LIMIT ? OFFSET ?",
-            [f.user_id, *params, PAGE_SIZE, (page - 1) * PAGE_SIZE],
+            [f.user_id, f.user_id, *params, PAGE_SIZE, (page - 1) * PAGE_SIZE],
         )
     )
 

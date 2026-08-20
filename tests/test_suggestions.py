@@ -230,15 +230,18 @@ def test_a_rating_is_shown_on_the_guide(client, admin_token):
         episode(conn, sid, 1, rating=8.6)
     body = client.get(f"/series/{sid}").text
     assert "8.6" in body
-    assert 'class="heat"' in body
+    # Per row, beside the episode it describes, coloured by score.
+    assert 'class="score r9"' in body
 
 
-def test_a_season_with_no_ratings_draws_no_strip(client, admin_token):
+def test_an_unrated_episode_shows_no_score(client, admin_token):
     _, user_id = admin_token
     with session() as conn:
         sid = add(conn, "Silo", pinned_by=user_id, sonarr_id=7)
         episode(conn, sid, 1)
-    assert 'class="heat"' not in client.get(f"/series/{sid}").text
+    body = client.get(f"/series/{sid}").text
+    assert 'class="score"' in body       # the column still holds its place
+    assert 'class="score r' not in body  # but carries no colour
 
 
 def test_the_live_endpoint_reports_current_states(client, admin_token):

@@ -13,15 +13,32 @@ from app.repo import mark_watched, set_last_watched
 log = logging.getLogger(__name__)
 
 
+RECENT_PLAYS = 200
+ALL_PLAYS = 5000
+
+
+@tracked("tautulli_recent")
+async def sync_recent_history() -> str:
+    """The last couple of hundred plays. Cheap enough to run hourly, which is
+    what makes watching something show up the same evening."""
+    return await _sync(RECENT_PLAYS)
+
+
 @tracked("tautulli_history")
 async def sync_tautulli_history() -> str:
+    """The full sweep, nightly: catches anything the hourly pass missed and
+    any history that arrived out of order."""
+    return await _sync(ALL_PLAYS)
+
+
+async def _sync(length: int) -> str:
     settings = get_settings()
     if not settings.tautulli_configured:
         return "skipped: Tautulli not configured"
 
     client = TautulliClient()
     newest = await client.last_watched_by_show()
-    plays = await client.watched_episodes()
+    plays = await client.watched_episodes(length=length)
 
     with session() as conn:
         for rating_key, watched_at in (newest or {}).items():

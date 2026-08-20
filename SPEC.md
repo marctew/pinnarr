@@ -200,6 +200,8 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `sonarr_series` | 03:10 nightly | Map `sonarr_id`, status, `nextAiring`, seasons array → `latest_season` |
 | `sonarr_calendar` | every 2h | Pull −7d…+60d window for all series; filter to pinned at render time |
 | `tautulli_history` | 03:20 nightly | Watch state per series and per episode, attributed per user |
+| `tautulli_recent` | hourly | The last 200 plays, so viewing shows up the same evening |
+| `plex_watched` | hourly | Watched state straight from Plex, per user — catches the toggle |
 | `tmdb_status` | 03:30 nightly | Production status for pinned series; recompute `outlook` for all |
 | `plex_availability` | hourly | For pinned series only: confirm recent episodes are present in Plex |
 | `sonarr_queue` | every minute | What is downloading right now |
@@ -610,6 +612,13 @@ reports how many it could not attribute.
 
 Only completed plays count. Tautulli reports `0.5` for a partial, and a show
 abandoned twenty minutes in should stay on the list.
+
+**Two sources, deliberately.** Tautulli logs *plays*; Plex holds the *state*.
+They diverge whenever somebody marks an episode watched without playing it,
+which is a normal thing to do and produces no history at all — so Plex is read
+directly, hourly, with each user's own token. Tautulli still contributes the
+play history, since it reaches further back than the pinned shows Plex is
+polled for.
 
 ## 18. Beyond v1
 

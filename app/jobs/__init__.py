@@ -60,6 +60,7 @@ def build_scheduler() -> AsyncIOScheduler:
         tag_sync,
         tautulli_sync,
         tmdb_sync,
+        watch_state,
         watchlist_sync,
     )
 
@@ -110,6 +111,18 @@ def build_scheduler() -> AsyncIOScheduler:
         notifications.notify_pending,
         CronTrigger(minute="*"),
         id="notify_pending", replace_existing=True, max_instances=1, coalesce=True,
+    )
+    # Hourly: what Plex says you have watched, including anything toggled
+    # rather than played. Tautulli's full history sweep stays nightly.
+    scheduler.add_job(
+        tautulli_sync.sync_recent_history,
+        CronTrigger(minute=50),
+        id="tautulli_recent", replace_existing=True, max_instances=1, coalesce=True,
+    )
+    scheduler.add_job(
+        watch_state.sync_watch_state,
+        CronTrigger(minute=40),
+        id="plex_watched", replace_existing=True, max_instances=1, coalesce=True,
     )
     scheduler.add_job(
         availability.sync_availability,

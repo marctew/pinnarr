@@ -86,23 +86,16 @@
            distinction is the point. #}
         <span class="have" title="{{ bar.confirmed }} confirmed in Plex">
           {{ bar.have }}/{{ bar.total }} downloaded</span>
-        {% set rated = eps|selectattr('rating')|list %}
-        {% if rated %}
-          <span class="heat" title="TMDB scores across the season">
-            {%- for ep in eps -%}
-              <span class="tick r{{ (ep.rating|round|int) if ep.rating else 0 }}"
-                    title="{{ ep.code }}{% if ep.rating %} · {{ '%.1f'|format(ep.rating) }}{% endif %}"></span>
-            {%- endfor -%}
-          </span>
-        {% endif %}
+
       </summary>
       <ul class="eps">
         {% for ep in eps %}
           <li class="ep state-{{ ep.state }}">
             <span class="when">{% if ep.air_local %}{{ ep.air_local.strftime('%d %b %Y') }}{% else %}—{% endif %}</span>
             <span class="who"><span class="show">{{ ep.title or '—' }}</span>{% if ep.milestone %}<span class="milestone">{{ ep.milestone }}</span>{% endif %}</span>
-            <span class="code">{{ ep.code }}{% if ep.rating %}
-              <span class="score">{{ '%.1f'|format(ep.rating) }}</span>{% endif %}</span>
+            <span class="code">{{ ep.code }}</span>
+            <span class="score{% if ep.rating %} r{{ ep.rating|round|int }}{% endif %}"
+                  title="TMDB score">{{ '%.1f'|format(ep.rating) if ep.rating else '' }}</span>
             <span class="pill">{{ ep.mark }}
       {%- if ep.state == "downloading" and ep.progress %} {{ ep.progress|round|int }}%
       {%- else %} {{ ep.label }}{% endif %}</span>
