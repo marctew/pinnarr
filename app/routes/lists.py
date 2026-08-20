@@ -15,8 +15,11 @@ from app.db import session
 from app.episodes import decorate
 from app.episodes import parse as parse_dt
 from app.repo import (
+    COLD_MONTHS,
     READY_DAYS,
     STALLED_HOURS,
+    at_risk,
+    cold_pins,
     discover_announced,
     discover_counts,
     discover_dated,
@@ -136,6 +139,7 @@ async def gaps_page(request: Request):
     with session() as conn:
         grouped = gaps(conn, user_id)
         shortfall = plex_shortfall(conn, user_id)
+        risky = at_risk(conn, user_id)
         pinned_total = pinned_count(conn, user_id)
 
     return templates.TemplateResponse(
@@ -148,6 +152,7 @@ async def gaps_page(request: Request):
             ],
             "pinned_total": pinned_total,
             "shortfall": shortfall,
+            "risky": risky,
         },
     )
 
@@ -163,11 +168,18 @@ async def retire_page(request: Request, done: str = ""):
     user_id = int(request.state.user["id"])
     with session() as conn:
         candidates = finished_pins(conn, user_id)
+        cold = cold_pins(conn, user_id)
         undoable = latest_retire_batch(conn, user_id)
     return templates.TemplateResponse(
         request,
         "retire.html",
-        {"candidates": candidates, "flash": done, "can_undo": bool(undoable)},
+        {
+            "candidates": candidates,
+            "cold": cold,
+            "cold_months": COLD_MONTHS,
+            "flash": done,
+            "can_undo": bool(undoable),
+        },
     )
 
 
@@ -196,6 +208,17 @@ async def undo_retire_pins(request: Request) -> JSONResponse:
         restored = undo_retire(conn, user_id, batch) if batch else 0
         total = pinned_count(conn, user_id)
     return JSONResponse({"restored": restored, "pinned_total": total})
+
+
+@router.post("/api/series/retire-cold")
+async def retire_cold(request: Request) -> JSONResponse:
+    """Unpin the shows that have gone cold, re-running the query server-side."""
+    user_id = int(request.state.user["id"])
+    with session() as conn:
+        ids = [int(r["id"]) for r in cold_pins(conn, user_id)]
+        removed, batch = retire(conn, user_id, ids)
+        total = pinned_count(conn, user_id)
+    return JSONResponse({"retired": removed, "batch": batch, "pinned_total": total})
 
 
 @router.get("/discover")

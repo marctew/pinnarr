@@ -1050,6 +1050,166 @@ def finished_pins(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     )
 
 
+#: How long a pin has to sit untouched before it counts as gone cold. Long
+#: enough to survive a busy autumn, short enough to catch a show you quietly
+#: stopped caring about last spring.
+COLD_MONTHS = 6
+
+
+def cold_pins(conn: sqlite3.Connection, user_id: int,
+              months: int = COLD_MONTHS) -> list[sqlite3.Row]:
+    """Pins you own episodes of and have not watched for months.
+
+    Retire catches shows that ended. This catches the other kind of dead
+    pin — the one still airing perfectly happily that you stopped watching
+    and never said so. Same §10 argument, pointed at your behaviour rather
+    than the show's.
+
+    Requires episodes you actually hold: a pin waiting on a season that has
+    not started is not cold, it is patient. And the pin itself has to be
+    older than the window, or everything pinned this morning reads as
+    neglected.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(days=months * 30)).isoformat()
+    return list(
+        conn.execute(
+            """
+            SELECT s.*, p.pinned_at,
+                   count(e.id) AS owned,
+                   max(w.watched_at) AS last_seen
+            FROM series s
+            JOIN pins p ON p.series_id = s.id AND p.user_id = :uid
+            JOIN episodes e ON e.series_id = s.id
+                AND (e.has_file = 1 OR e.in_plex = 1) AND e.season > 0
+            LEFT JOIN episode_watches w
+                ON w.episode_id = e.id AND w.user_id = :uid
+            WHERE p.pinned_at < :cutoff
+              -- Not also on the retire list: one page, two sections, and a
+              -- show in both would be offered twice and unpinned once.
+              --
+              -- COALESCE because outlook is nullable and NULL IN (...) is
+              -- NULL, not false — so NOT (NULL AND true) is NULL and the
+              -- row is dropped. Every show without an outlook yet would
+              -- have been silently excluded.
+              AND NOT (
+                  COALESCE(s.outlook, '') IN ('ended', 'cancelled')
+                  AND (s.next_airing IS NULL OR s.next_airing < :now)
+              )
+            GROUP BY s.id
+            HAVING last_seen IS NULL OR last_seen < :cutoff
+            ORDER BY last_seen IS NOT NULL, last_seen, s.sort_title
+            """,
+            {"uid": user_id, "cutoff": cutoff, "now": utcnow()},
+        )
+    )
+
+
+def continue_watching(conn: sqlite3.Connection, user_id: int,
+                      limit: int = 8) -> list[sqlite3.Row]:
+    """Shows you are partway through, with the next episode you can watch.
+
+    next_unwatched already existed but only on a series page, which you have
+    to already know you want. The question you actually arrive with is which
+    show, not which episode.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT s.id AS series_id, s.title, s.poster_url,
+                   e.id AS episode_id, e.season, e.episode,
+                   e.title AS episode_title, e.runtime, e.plex_rating_key,
+                   progress.seen, progress.owned, progress.last_seen
+            FROM series s
+            JOIN pins p ON p.series_id = s.id AND p.user_id = :uid
+            JOIN (
+                SELECT e.series_id,
+                       count(*) AS owned,
+                       sum(w.watched_at IS NOT NULL) AS seen,
+                       max(w.watched_at) AS last_seen
+                FROM episodes e
+                LEFT JOIN episode_watches w
+                    ON w.episode_id = e.id AND w.user_id = :uid
+                WHERE (e.has_file = 1 OR e.in_plex = 1) AND e.season > 0
+                GROUP BY e.series_id
+            ) AS progress ON progress.series_id = s.id
+            JOIN episodes e ON e.id = (
+                SELECT e2.id FROM episodes e2
+                LEFT JOIN episode_watches w2
+                    ON w2.episode_id = e2.id AND w2.user_id = :uid
+                WHERE e2.series_id = s.id AND e2.season > 0
+                  AND (e2.has_file = 1 OR e2.in_plex = 1)
+                  AND w2.watched_at IS NULL
+                ORDER BY e2.season, e2.episode
+                LIMIT 1
+            )
+            -- Started but not finished. Something you have never opened is a
+            -- recommendation, not a continuation, and belongs on Ready.
+            WHERE progress.seen > 0 AND progress.seen < progress.owned
+            ORDER BY progress.last_seen DESC
+            LIMIT :limit
+            """,
+            {"uid": user_id, "limit": limit},
+        )
+    )
+
+
+def at_risk(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    """Pins with something structurally wrong, and what it is.
+
+    The signals already existed on three different pages, which meant a show
+    could be missing four episodes, invisible to Plex and untracked by Sonarr
+    without any one page joining it up.
+
+    Every reason has to name a consequence. "Not in Sonarr" on a finished
+    show you hold in full is not a problem — there is nothing left to fetch —
+    and a page that says so anyway is one you stop reading.
+    """
+    rows = conn.execute(
+        """
+        SELECT s.id, s.title, s.sort_title, s.outlook, s.next_airing,
+               s.in_sonarr, s.sonarr_id, s.plex_checked_at,
+               sum(
+                   e.season > 0 AND e.monitored = 1
+                   AND e.has_file = 0 AND e.in_plex = 0
+                   AND e.air_date_utc IS NOT NULL AND e.air_date_utc < :now
+               ) AS holes,
+               sum(e.season > 0 AND e.has_file = 1 AND e.in_plex = 0) AS unindexed
+        FROM series s
+        JOIN pins p ON p.series_id = s.id AND p.user_id = :uid
+        LEFT JOIN episodes e ON e.series_id = s.id
+        GROUP BY s.id
+        ORDER BY s.sort_title
+        """,
+        {"uid": user_id, "now": utcnow()},
+    ).fetchall()
+
+    flagged = []
+    for row in rows:
+        untracked = not row["in_sonarr"] or not row["sonarr_id"]
+        holes = int(row["holes"] or 0)
+        unindexed = int(row["unindexed"] or 0)
+        due_again = bool(row["next_airing"] and row["next_airing"] > utcnow())
+
+        reasons = []
+        if holes:
+            reasons.append(
+                f"{holes} aired episode(s) never turned up"
+                + (" — and Sonarr is not tracking it, so nothing will fetch them"
+                   if untracked else "")
+            )
+        elif untracked and due_again:
+            # Nothing missing yet, but there will be, and every other page
+            # will report it as merely late.
+            reasons.append("airing again soon, and Sonarr is not tracking it")
+        # in_plex = 0 only means "Plex has not got it" once the availability
+        # job has actually looked. Before that it means "never checked".
+        if unindexed and row["plex_checked_at"]:
+            reasons.append(f"{unindexed} file(s) Sonarr has and Plex has not indexed")
+        if reasons:
+            flagged.append({"series": row, "reasons": reasons})
+    return flagged
+
+
 def retire(conn: sqlite3.Connection, user_id: int, series_ids: list[int]) -> tuple[int, str]:
     """Unpin many at once, as one undoable batch.
 

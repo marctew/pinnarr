@@ -7,6 +7,23 @@
   Unlike the calendar's warning, this isn't bounded to the last month — a hole
   in the middle of season two is invisible until you sit down to watch it.</p>
 
+{% if risky %}
+  {# The three signals below already existed on separate pages, which meant a
+     show could be missing four episodes, invisible to Plex and untracked by
+     Sonarr without any one page saying so. #}
+  <h2 class="section warn">⚠ Needs attention</h2>
+  <ul class="risks">
+    {% for item in risky %}
+      <li class="risk">
+        <a class="who" href="/series/{{ item.series['id'] }}">{{ item.series['title'] }}</a>
+        <span class="reasons">
+          {% for reason in item.reasons %}<span class="reason">{{ reason }}</span>{% endfor %}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
 {% if not groups %}
   <p class="empty">
     {% if pinned_total %}No holes in anything you follow.

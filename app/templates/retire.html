@@ -17,10 +17,13 @@
   <p class="result" id="undo-result"></p>
 {% endif %}
 
-{% if not candidates %}
+{% if not candidates and not cold %}
   <p class="empty">Nothing to retire. Every pin you have could still deliver
-    something. <a href="/library?pinned=pinned">See your pins</a>.</p>
-{% else %}
+    something, and you are keeping up with all of them.
+    <a href="/library?pinned=pinned">See your pins</a>.</p>
+{% endif %}
+
+{% if candidates %}
   <p class="actions">
     <button type="button" class="primary" onclick="retireAll()">
       Unpin all {{ candidates|length }}
@@ -46,6 +49,37 @@
   </div>
 {% endif %}
 
+{% if cold %}
+  <h2 class="section">Gone cold</h2>
+  <p class="lede">Still airing, and you have episodes of them sitting unwatched
+    for over {{ cold_months }} months. Retire catches shows that ended; these
+    are the ones you stopped watching without saying so.</p>
+  <p class="actions">
+    <button type="button" onclick="retireCold()">Unpin all {{ cold|length }}</button>
+    <span class="hint">Undoable straight afterwards, same as above.</span>
+  </p>
+  <p class="result" id="cold-result"></p>
+
+  <div class="grid">
+    {% for s in cold %}
+      <article class="card">
+        <div class="thumb">
+          <a class="poster" href="/series/{{ s['id'] }}">
+            <img src="/poster/{{ s['id'] }}" alt="{{ s['title'] }}" loading="lazy"
+                 width="200" height="300">
+          </a>
+        </div>
+        <h4><a href="/series/{{ s['id'] }}">{{ s['title'] }}</a></h4>
+        <p class="badge">
+          {%- if s['last_seen'] %}last watched {{ s['last_seen'][:10] }}
+          {%- else %}never watched{% endif -%}
+        </p>
+        <p class="hint">{{ s['owned'] }} episode(s) here</p>
+      </article>
+    {% endfor %}
+  </div>
+{% endif %}
+
 <script>
   async function retireAll() {
     const total = {{ candidates|length }};
@@ -54,6 +88,16 @@
     const r = await fetch('/api/series/retire', { method: 'POST' });
     const data = await r.json();
     document.getElementById('retire-result').textContent =
+      data.retired + ' unpinned. Reloading — the undo button is at the top.';
+    setTimeout(() => location.reload(), 900);
+  }
+
+  async function retireCold() {
+    const total = {{ cold|length if cold else 0 }};
+    if (!confirm('Unpin ' + total + ' show' + (total === 1 ? '' : 's') + ' you have gone cold on?')) return;
+    const r = await fetch('/api/series/retire-cold', { method: 'POST' });
+    const data = await r.json();
+    document.getElementById('cold-result').textContent =
       data.retired + ' unpinned. Reloading — the undo button is at the top.';
     setTimeout(() => location.reload(), 900);
   }

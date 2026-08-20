@@ -21,6 +21,7 @@ from app.db import session
 from app.diagnose import why_missing
 from app.episodes import decorate, episode_state
 from app.repo import (
+    continue_watching,
     overdue_episodes,
     pinned_by_outlook,
     pinned_count,
@@ -41,6 +42,11 @@ LOOKAHEAD_DAYS = 120
 #: How far back "aired, not arrived" looks. Beyond this it stops being news
 #: and starts being an audit of the back catalogue.
 OVERDUE_DAYS = 30
+
+
+#: How many to offer. A strip, not a second library page — past about eight
+#: it stops being "what was I watching" and starts being a list to search.
+CONTINUE_LIMIT = 8
 
 
 def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
@@ -83,6 +89,7 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
         filming = pinned_by_outlook(conn, user_id, ("in_production",))
         dormant = pinned_by_outlook(conn, user_id, ("dormant", "cancelled"))
         pinned_total = pinned_count(conn, user_id)
+        resume = continue_watching(conn, user_id, CONTINUE_LIMIT)
 
     episodes = [decorate(r, now=now, tz=str(tz)) for r in rows]
 
@@ -151,6 +158,7 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
         "filming": filming,
         "dormant": dormant,
         "pinned_total": pinned_total,
+        "resume": resume,
         "weeks": weeks,
         # What the dots on the grid actually are — without this the month view
         # tells you something is happening and refuses to say what.

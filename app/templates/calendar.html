@@ -56,6 +56,33 @@
 <h1>Next 14 days</h1>
 <p class="lede">{{ pinned_total }} shows pinned.</p>
 
+{% if resume %}
+  {# The question you arrive with is which show, not which episode — so this
+     goes above the agenda, where the answer is one click rather than two. #}
+  <h2 class="section">Carry on watching</h2>
+  <ul class="resume">
+    {% for r in resume %}
+      <li class="card-sm">
+        <a class="art" href="/series/{{ r['series_id'] }}" tabindex="-1" aria-hidden="true">
+          <img src="/poster/{{ r['series_id'] }}" alt="" loading="lazy">
+        </a>
+        <a class="name" href="/series/{{ r['series_id'] }}">{{ r['title'] }}</a>
+        <span class="upto">
+          S{{ '%02d'|format(r['season']) }}E{{ '%02d'|format(r['episode']) }}
+          <span class="dim">{{ r['episode_title'] or '' }}</span>
+        </span>
+        <span class="run">
+          {{ r['seen'] }}/{{ r['owned'] }} watched{% if r['runtime'] %} · {{ duration(r['runtime']) }}{% endif %}
+        </span>
+        {% set watch_url = plex_episode(r['plex_rating_key']) %}
+        {% if watch_url %}
+          <a class="pill" href="{{ watch_url }}" target="_blank" rel="noopener noreferrer">▶ play</a>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
 <div class="cal">
 <div class="cal-main">
 
