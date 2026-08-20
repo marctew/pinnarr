@@ -192,27 +192,36 @@ class PlexClient:
         if not show.genres:
             show.genres = [g["tag"] for g in meta.get("Genre") or [] if g.get("tag")]
 
-    async def watched_episodes(self, rating_key: str) -> set[tuple[int, int]]:
-        """(season, episode) pairs this token's account has watched.
+    async def view_state(self, rating_key: str) -> dict[tuple[int, int], bool]:
+        """Every episode Plex returns for a show, and whether it is watched.
 
-        Plex holds the truth about watched state; Tautulli holds a log of
-        plays. They differ whenever somebody marks an episode watched without
-        playing it, which is a normal thing to do and produces no history at
-        all.
+        Both halves matter. Plex holds the truth about watched state and
+        Tautulli holds a log of plays, so returning only the watched ones
+        would let a stale play record outlive the state it came from.
+
+        An explicit container size, because the default is not guaranteed to
+        cover a long-running show and a silently truncated response looks
+        exactly like an unwatched season.
         """
-        data = await self._get(f"/library/metadata/{rating_key}/allLeaves")
+        data = await self._get(
+            f"/library/metadata/{rating_key}/allLeaves",
+            **{"X-Plex-Container-Start": 0, "X-Plex-Container-Size": 2000},
+        )
         items = (data or {}).get("MediaContainer", {}).get("Metadata", []) or []
-        seen: set[tuple[int, int]] = set()
+        state: dict[tuple[int, int], bool] = {}
         for item in items:
-            if not isinstance(item, dict) or not item.get("viewCount"):
+            if not isinstance(item, dict):
                 continue
             season = item.get("parentIndex")
             episode = item.get("index")
             if season is None or episode is None:
                 continue
             with contextlib.suppress(TypeError, ValueError):
-                seen.add((int(season), int(episode)))
-        return seen
+                # viewCount counts completed plays. A part-watched episode has
+                # a viewOffset and no count, which is right: you have not seen
+                # it yet.
+                state[(int(season), int(episode))] = bool(item.get("viewCount"))
+        return state
 
     async def episode_keys_present(self, rating_key: str) -> set[tuple[int, int]]:
         """(season, episode) pairs actually present in Plex for one show.

@@ -1255,6 +1255,22 @@ def mark_watched(conn: sqlite3.Connection, user_id: int, plex_rating_key: str,
     return True
 
 
+def unmark_watched(conn: sqlite3.Connection, user_id: int, plex_rating_key: str,
+                   season: int, episode: int) -> bool:
+    """Forget that an episode was watched, because Plex says it wasn't."""
+    cur = conn.execute(
+        """
+        DELETE FROM episode_watches
+        WHERE user_id = ? AND episode_id IN (
+            SELECT e.id FROM episodes e JOIN series s ON s.id = e.series_id
+            WHERE s.plex_rating_key = ? AND e.season = ? AND e.episode = ?
+        )
+        """,
+        (user_id, plex_rating_key, season, episode),
+    )
+    return cur.rowcount > 0
+
+
 def watch_progress(conn: sqlite3.Connection, user_id: int) -> dict[int, dict[str, int]]:
     """Per series: how many episodes this user holds, and how many they have seen."""
     rows = conn.execute(

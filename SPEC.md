@@ -613,7 +613,7 @@ reports how many it could not attribute.
 Only completed plays count. Tautulli reports `0.5` for a partial, and a show
 abandoned twenty minutes in should stay on the list.
 
-**Two sources, deliberately.** Tautulli logs *plays*; Plex holds the *state*.
+**Plex is authoritative.** Tautulli logs *plays*; Plex holds the *state*.
 They diverge whenever somebody marks an episode watched without playing it,
 which is a normal thing to do and produces no history at all — so Plex is read
 directly, hourly, with each user's own token. Tautulli still contributes the

@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import logging
 
-from app.clients.http import UpstreamError
 from app.clients.plex import PlexClient
 from app.config import get_settings
 from app.db import session, utcnow
 from app.jobs import tracked
-from app.repo import mark_watched
+from app.repo import mark_watched, unmark_watched
 
 log = logging.getLogger(__name__)
 
@@ -52,19 +51,38 @@ async def sync_watch_state() -> str:
 
         client = PlexClient(viewer["plex_token"])
         marked = 0
+        cleared = 0
+        failed = 0
+
         for show in series:
             try:
-                seen = await client.watched_episodes(show["plex_rating_key"])
-            except UpstreamError as exc:
+                state = await client.view_state(show["plex_rating_key"])
+            except Exception as exc:  # noqa: BLE001 — one bad show, not the run
                 log.warning("watch state failed for %s: %s", show["title"], exc)
+                failed += 1
                 continue
+
+            # Plex is authoritative for what it returns. Adding only would let
+            # a stale Tautulli play record outlive the state it came from, and
+            # nothing could ever be un-watched.
             with session() as conn:
-                for season, episode in seen:
-                    if mark_watched(
-                        conn, int(viewer["id"]), show["plex_rating_key"],
-                        season, episode, utcnow(),
+                for (season, episode), watched in state.items():
+                    if watched:
+                        if mark_watched(
+                            conn, int(viewer["id"]), show["plex_rating_key"],
+                            season, episode, utcnow(),
+                        ):
+                            marked += 1
+                    elif unmark_watched(
+                        conn, int(viewer["id"]), show["plex_rating_key"], season, episode
                     ):
-                        marked += 1
-        notes.append(f"{viewer['username']}: {marked} watched across {len(series)} pin(s)")
+                        cleared += 1
+
+        note = f"{viewer['username']}: {marked} watched across {len(series)} pin(s)"
+        if cleared:
+            note += f", {cleared} corrected"
+        if failed:
+            note += f", {failed} series Plex would not answer for"
+        notes.append(note)
 
     return "; ".join(notes)

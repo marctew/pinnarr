@@ -449,3 +449,81 @@ def test_the_library_card_names_the_next_episode(client, admin_token):
         part_watched(conn, user_id)
     body = client.get("/library").text
     assert "6/10 watched · S03E07" in body
+
+
+# ── Plex is authoritative ──
+
+
+@respx.mock
+async def test_plex_overrides_a_stale_play_record(db, admin_token, monkeypatch):
+    """Tautulli logged a play; Plex says it is not watched. Plex wins, or
+    nothing could ever be un-watched."""
+    from app.clients.plex import PlexClient
+    from app.jobs.watch_state import sync_watch_state
+
+    _, user_id = admin_token
+    save_settings({"plex_url": "http://plex.lan:32400"})
+    with session() as conn:
+        seed(conn, user_id, episodes=(1, 2))
+        conn.execute("UPDATE users SET plex_token = 'tok' WHERE id = ?", (user_id,))
+        mark_watched(conn, user_id, "9001", 1, 1, utcnow())
+        mark_watched(conn, user_id, "9001", 1, 2, utcnow())
+
+    async def state(_self, _key):
+        return {(1, 1): True, (1, 2): False}
+
+    monkeypatch.setattr(PlexClient, "view_state", state)
+    detail = await sync_watch_state()
+
+    assert "1 corrected" in detail
+    with session() as conn:
+        left = conn.execute(
+            "SELECT e.episode FROM episode_watches w JOIN episodes e ON e.id = w.episode_id"
+        ).fetchall()
+    assert [r["episode"] for r in left] == [1]
+
+
+@respx.mock
+async def test_a_series_plex_will_not_answer_for_is_counted(db, admin_token, monkeypatch):
+    """A silently truncated or failed response looks exactly like an
+    unwatched season, which is how a whole season read as zero."""
+    from app.clients.plex import PlexClient
+    from app.jobs.watch_state import sync_watch_state
+
+    _, user_id = admin_token
+    save_settings({"plex_url": "http://plex.lan:32400"})
+    with session() as conn:
+        seed(conn, user_id)
+        conn.execute("UPDATE users SET plex_token = 'tok' WHERE id = ?", (user_id,))
+
+    async def boom(_self, _key):
+        raise RuntimeError("nope")
+
+    monkeypatch.setattr(PlexClient, "view_state", boom)
+    assert "1 series Plex would not answer for" in await sync_watch_state()
+
+
+@respx.mock
+async def test_a_part_watched_episode_is_not_counted_as_seen(db, admin_token, monkeypatch):
+    """Plex gives a part-watched episode a viewOffset and no viewCount. You
+    have not seen it, and it should be what comes up next."""
+    from app.clients.plex import PlexClient
+    from app.jobs.watch_state import sync_watch_state
+
+    _, user_id = admin_token
+    save_settings({"plex_url": "http://plex.lan:32400"})
+    with session() as conn:
+        sid = seed(conn, user_id, episodes=(1, 2, 3))
+        conn.execute("UPDATE users SET plex_token = 'tok' WHERE id = ?", (user_id,))
+
+    async def state(_self, _key):
+        return {(1, 1): True, (1, 2): False, (1, 3): False}
+
+    monkeypatch.setattr(PlexClient, "view_state", state)
+    await sync_watch_state()
+
+    from app.repo import next_unwatched
+
+    with session() as conn:
+        nxt = next_unwatched(conn, user_id, sid)
+    assert nxt["episode"] == 2
