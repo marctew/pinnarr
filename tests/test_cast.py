@@ -63,12 +63,10 @@ def show(conn, title, *, user_id=None, watched=0, tmdb_id=None):
 
 
 @respx.mock
-async def test_only_pinned_shows_are_fetched(client, admin_token):
-    """Two thousand series is two thousand calls for a nightly job."""
+async def test_pinned_shows_are_fetched_first(client, admin_token):
     _, user_id = admin_token
     with session() as conn:
         show(conn, "Silo", user_id=user_id, tmdb_id=111)
-        show(conn, "Unpinned", tmdb_id=222)
 
     route = respx.get(f"{TMDB}/tv/111/aggregate_credits").mock(
         return_value=httpx.Response(200, json={"cast": [
@@ -79,11 +77,107 @@ async def test_only_pinned_shows_are_fetched(client, admin_token):
     )
     detail = await sync_cast()
     assert route.call_count == 1
-    assert "1/1" in detail
+    assert "1 pinned refreshed" in detail
 
     with session() as conn:
         row = conn.execute("SELECT * FROM people").fetchone()
     assert row["name"] == "Rebecca Ferguson"
+
+
+@respx.mock
+async def test_unpinned_shows_are_backfilled_too(client, admin_token):
+    """The whole feature depends on it. "Where do I know them from" needs
+    credits on both shows, so covering only pins means it can never fire for
+    the thing you watched three years ago and never pinned — which is
+    precisely the show that would answer the question."""
+    _, user_id = admin_token
+    with session() as conn:
+        show(conn, "Silo", user_id=user_id, tmdb_id=111)
+        show(conn, "Old Favourite", tmdb_id=222)
+
+    for tmdb_id in (111, 222):
+        respx.get(f"{TMDB}/tv/{tmdb_id}/aggregate_credits").mock(
+            return_value=httpx.Response(200, json={"cast": [
+                {"id": 1, "name": "Rebecca Ferguson", "total_episode_count": 20,
+                 "order": 0, "roles": [{"character": "Someone"}]},
+            ]})
+        )
+    detail = await sync_cast()
+    assert "1 backfilled" in detail
+    assert "whole library covered" in detail
+
+    with session() as conn:
+        covered = conn.execute(
+            "SELECT count(DISTINCT series_id) AS n FROM series_cast"
+        ).fetchone()["n"]
+    assert covered == 2
+
+
+@respx.mock
+async def test_the_backfill_is_batched(client, admin_token):
+    """Two thousand calls in one go would be rude to a free API."""
+    _, user_id = admin_token
+    with session() as conn:
+        for n in range(5):
+            show(conn, f"Show {n}", tmdb_id=500 + n)
+    for n in range(5):
+        respx.get(f"{TMDB}/tv/{500 + n}/aggregate_credits").mock(
+            return_value=httpx.Response(200, json={"cast": []})
+        )
+
+    detail = await sync_cast(backfill=2)
+    assert "2 backfilled" in detail
+    assert "3 left to cover" in detail
+
+
+@respx.mock
+async def test_the_backfill_starts_with_what_you_have_watched(client, admin_token):
+    """Those are the faces you would recognise, so they make the feature
+    work soonest."""
+    _, user_id = admin_token
+    with session() as conn:
+        show(conn, "Barely Touched", tmdb_id=601)
+        show(conn, "Watched Loads", tmdb_id=602, user_id=user_id, watched=3)
+        # Unpin it, so it competes as a backfill candidate rather than a pin.
+        conn.execute("DELETE FROM pins")
+
+    routes = {
+        n: respx.get(f"{TMDB}/tv/{n}/aggregate_credits").mock(
+            return_value=httpx.Response(200, json={"cast": []})
+        )
+        for n in (601, 602)
+    }
+    await sync_cast(backfill=1)
+    assert routes[602].call_count == 1
+    assert routes[601].call_count == 0
+
+
+@respx.mock
+async def test_a_covered_show_is_not_asked_about_again(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        show(conn, "Old Favourite", tmdb_id=222)
+    route = respx.get(f"{TMDB}/tv/222/aggregate_credits").mock(
+        return_value=httpx.Response(200, json={"cast": []})
+    )
+    await sync_cast()
+    await sync_cast()
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_a_show_with_no_cast_listed_is_still_marked_covered(client):
+    """Otherwise an empty answer is re-asked every night for ever."""
+    with session() as conn:
+        show(conn, "Obscure", tmdb_id=333)
+    respx.get(f"{TMDB}/tv/333/aggregate_credits").mock(
+        return_value=httpx.Response(200, json={"cast": []})
+    )
+    await sync_cast()
+    with session() as conn:
+        assert conn.execute(
+            "SELECT cast_synced_at FROM series WHERE tmdb_id = 333"
+        ).fetchone()["cast_synced_at"]
 
 
 @respx.mock
@@ -106,6 +200,9 @@ async def test_a_recast_replaces_rather_than_accumulates(client, admin_token):
              "roles": [{"character": "The Sheriff"}]},
         ]})
     )
+    with session() as conn:
+        # A month on, when the refresh is due again.
+        conn.execute("UPDATE series SET cast_synced_at = '2020-01-01T00:00:00+00:00'")
     await sync_cast()
 
     with session() as conn:
@@ -131,7 +228,7 @@ async def test_a_show_whose_credits_fail_does_not_stop_the_run(client, admin_tok
     )
     detail = await sync_cast()
     assert "1 failed" in detail
-    assert "1/2" in detail
+    assert "1 pinned refreshed" in detail
 
 
 @respx.mock
