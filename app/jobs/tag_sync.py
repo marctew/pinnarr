@@ -131,10 +131,23 @@ async def _sync_user(
         for series_id in unpin_here:
             set_pinned(conn, int(user["id"]), series_id, False)
 
+        # Each side recorded as it now actually stands. Writing one value to
+        # both columns asserts they agree, which is only true when every
+        # intended write landed — and a state that claims agreement it never
+        # verified turns the next run into an unpin.
         final_pinned = (pinned_ids | set(pin_here) | set(add_tag)) - set(unpin_here)
+        # add_tag/drop_tag are safe to fold in here, unlike on the Plex
+        # side: apply_tag raises on a non-2xx and the whole run aborts before
+        # reaching this, so anything still in those lists did land.
+        final_tagged = (
+            (tagged_ids | set(add_tag) | set(pin_here))
+            - set(drop_tag) - set(unpin_here)
+        )
         for series_id in pinned_ids | tagged_ids | set(previous):
-            here = series_id in final_pinned
-            _remember(conn, int(user["id"]), series_id, here, here)
+            _remember(
+                conn, int(user["id"]), series_id,
+                series_id in final_pinned, series_id in final_tagged,
+            )
 
     changes = len(add_tag) + len(drop_tag) + len(pin_here) + len(unpin_here)
     if not changes:

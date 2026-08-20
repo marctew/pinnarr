@@ -115,16 +115,34 @@ async def _sync_user(user: Any) -> str:
         if with_key:
             await watchlist.remove(token, with_key)
 
+    if to_list or to_unlist:
+        # Read it back rather than assume. Plex accepts these calls and does
+        # not always act on them, and a remembered state that claims a write
+        # landed when it did not is read next run as "they removed it over
+        # there" — which unpins. One extra call, only when we wrote.
+        confirmed = {item.guid for item in await watchlist.fetch(token)}
+        listed_ids = {by_guid[g] for g in confirmed if g in by_guid}
+
     with session() as conn:
         for series_id in pin_here:
             set_pinned(conn, int(user["id"]), series_id, True)
         for series_id in unpin_here:
             set_pinned(conn, int(user["id"]), series_id, False)
 
-        final = (pinned_ids | set(pin_here) | set(to_list)) - set(unpin_here)
+        # Record what is now true on each side separately. Writing the same
+        # value to both said "these agree" whenever we *meant* them to agree,
+        # including for a show we had just declined to watchlist because it
+        # has no plex:// identity. The next run then read listed 1 → 0, took
+        # it as a removal in Plex, and deleted the pin.
+        final_pinned = (pinned_ids | set(pin_here) | set(to_list)) - set(unpin_here)
+        # listed_ids is what Plex says right now — re-read above if we
+        # wrote anything — so nothing here is assumed.
+        final_listed = listed_ids | set(pin_here) - set(unpin_here)
         for series_id in pinned_ids | listed_ids | set(previous):
-            here = series_id in final
-            _remember(conn, int(user["id"]), series_id, here, here)
+            _remember(
+                conn, int(user["id"]), series_id,
+                series_id in final_pinned, series_id in final_listed,
+            )
 
     changes = len(to_list) + len(to_unlist) + len(pin_here) + len(unpin_here)
     note = f"{user['username']}: "
