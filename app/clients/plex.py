@@ -287,6 +287,23 @@ class PlexClient:
             start += page
         return by_series
 
+    async def scrobble(self, rating_key: str, *, watched: bool) -> None:
+        """Mark something watched or unwatched, for whoever's token this is.
+
+        The fourth place Pinnarr writes to another service (SPEC §1), and the
+        first that changes something you can see in Plex itself — so it only
+        ever happens because somebody pressed a button.
+
+        A rating key here can be an episode, a season or a whole show; Plex
+        applies it to everything underneath. GET rather than POST because
+        that is what Plex published, not because it is a read.
+        """
+        await self._get(
+            "/:/scrobble" if watched else "/:/unscrobble",
+            identifier="com.plexapp.plugins.library",
+            key=rating_key,
+        )
+
     async def episode_keys_present(self, rating_key: str) -> set[tuple[int, int]]:
         """(season, episode) pairs actually present in Plex for one show.
 

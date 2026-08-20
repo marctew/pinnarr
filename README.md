@@ -149,6 +149,9 @@ cannot reach the admin routes.
 | `GET /api/watching` | Shows you're partway through |
 | `GET /api/arrivals?hours=24` | What landed recently — the automation trigger |
 | `GET /api/downloads` | The queue, and what has stalled |
+| `POST /api/series/{id}/refresh-watched` | Re-read one show's watch state from Plex now |
+| `POST /api/series/{id}/watched` | Mark a show (or `season=N`) watched in Plex |
+| `POST /api/episodes/{id}/watched` | Mark one episode watched in Plex |
 | `GET /api/calendar` | The raw calendar feed |
 | `GET /healthz` | Liveness, config state and last job runs (no key needed) |
 

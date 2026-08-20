@@ -657,13 +657,13 @@ def test_a_missing_view_time_is_none_not_a_crash():
 def test_the_sweep_dates_a_watch_to_when_plex_says_not_to_now(db, admin_token):
     """Stamping the sync time made "last watched" a clock, not a history."""
     from app.clients.plex import EpisodeView
-    from app.jobs.watch_state import _apply
+    from app.jobs.watch_state import apply_view_state
 
     _, user_id = admin_token
     with session() as conn:
         seed(conn, user_id)
 
-    _apply(user_id, "9001", {
+    apply_view_state(user_id, "9001", {
         (1, 1): EpisodeView(watched=True, rating_key="11",
                             viewed_at="2024-02-03T21:00:00+00:00"),
     })

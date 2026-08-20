@@ -44,7 +44,7 @@ def _viewers() -> list[Any]:
         )
 
 
-def _apply(user_id: int, series_key: str, state: dict) -> tuple[int, int]:
+def apply_view_state(user_id: int, series_key: str, state: dict) -> tuple[int, int]:
     marked = cleared = 0
     with session() as conn:
         for (season, episode), view in state.items():
@@ -93,7 +93,7 @@ async def sync_watch_state() -> str:
                 log.warning("watch state failed for %s: %s", show["title"], exc)
                 failed += 1
                 continue
-            got, lost = _apply(int(viewer["id"]), show["plex_rating_key"], state)
+            got, lost = apply_view_state(int(viewer["id"]), show["plex_rating_key"], state)
             marked += got
             cleared += lost
 
@@ -150,7 +150,7 @@ async def sync_all_watch_state() -> str:
                 if series_key not in known:
                     continue
                 seen_series += 1
-                got, lost = _apply(int(viewer["id"]), series_key, state)
+                got, lost = apply_view_state(int(viewer["id"]), series_key, state)
                 marked += got
                 cleared += lost
 

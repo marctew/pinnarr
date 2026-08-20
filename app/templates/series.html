@@ -30,6 +30,15 @@
         <a class="ext" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.name }} ↗</a>
       {% endfor %}
     </p>
+    <p class="actions">
+      <button type="button" class="tiny" onclick="refreshWatched({{ s['id'] }})">
+        Refresh watched from Plex</button>
+      <button type="button" class="tiny" onclick="markSeries({{ s['id'] }}, true)">
+        Mark all watched</button>
+      <button type="button" class="tiny" onclick="markSeries({{ s['id'] }}, false)">
+        Mark all unwatched</button>
+      <span class="result" id="watch-result"></span>
+    </p>
     {% for reason in missing_links %}
       <p class="hint">{{ reason }}</p>
     {% endfor %}
@@ -190,6 +199,9 @@
         {# "have" counts a file on disk as well as a Plex match, so it cannot
            claim to be Plex. The cross-check on /gaps is where that
            distinction is the point. #}
+        <button type="button" class="tiny seasonmark"
+                onclick="event.preventDefault(); markSeason({{ s['id'] }}, {{ number }}, true)"
+                title="Mark this season watched in Plex">✓</button>
         <span class="have" title="{{ bar.confirmed }} confirmed in Plex">
           {%- if bar.seen %}{{ bar.seen }}/{{ bar.total }} watched
           {%- else %}{{ bar.have }}/{{ bar.total }} downloaded{% endif -%}
@@ -208,6 +220,11 @@
                something that was not there, and where you are up to is the
                more useful thing for the row to say. #}
             {% set watch_url = plex_episode(ep.plex_rating_key) %}
+            <button type="button" class="tick" data-episode="{{ ep.id }}"
+                    onclick="markEpisode({{ ep.id }}, {{ 'false' if ep.watched else 'true' }})"
+                    title="{{ 'Mark unwatched in Plex' if ep.watched else 'Mark watched in Plex' }}"
+                    aria-label="{{ 'Mark unwatched' if ep.watched else 'Mark watched' }}">
+              {{ '✓' if ep.watched else '○' }}</button>
             {% if ep.watched %}
               {% if watch_url %}
                 <a class="pill watched" href="{{ watch_url }}" target="_blank"
@@ -257,6 +274,53 @@
     const r = await fetch('/api/series/' + id + '/season-pack', { method: 'POST', body });
     out.className = 'result ' + (r.ok ? 'ok' : 'bad');
     out.textContent = r.ok ? (wanted ? '✓ waiting for full seasons' : '✓ notifying per episode') : '✕ failed';
+  }
+
+  // Everything here writes to Plex and then re-reads it, rather than
+  // updating the page and hoping. Plex is authoritative for anyone with a
+  // token, so a mark that did not reach it would be cleared within the hour
+  // — and a page that had already drawn the tick would be lying.
+  function watchSay(text, ok) {
+    const out = document.getElementById('watch-result');
+    out.className = 'result ' + (ok === null ? 'pending' : ok ? 'ok' : 'bad');
+    out.textContent = text;
+  }
+
+  async function watchPost(url, body) {
+    watchSay('Asking Plex…', null);
+    try {
+      const r = await fetch(url, { method: 'POST', body });
+      const data = await r.json().catch(() => ({}));
+      watchSay((r.ok ? '✓ ' : '✕ ') + (data.detail || ('HTTP ' + r.status)), r.ok);
+      if (r.ok) setTimeout(() => location.reload(), 600);
+    } catch (err) {
+      watchSay('✕ ' + err, false);
+    }
+  }
+
+  function refreshWatched(id) {
+    watchPost('/api/series/' + id + '/refresh-watched');
+  }
+
+  function markSeries(id, watched) {
+    const what = watched ? 'watched' : 'unwatched';
+    if (!confirm('Mark every episode of this show ' + what + ' in Plex?')) return;
+    const body = new FormData();
+    body.append('watched', watched);
+    watchPost('/api/series/' + id + '/watched', body);
+  }
+
+  function markSeason(id, season, watched) {
+    const body = new FormData();
+    body.append('watched', watched);
+    body.append('season', season);
+    watchPost('/api/series/' + id + '/watched', body);
+  }
+
+  function markEpisode(id, watched) {
+    const body = new FormData();
+    body.append('watched', watched);
+    watchPost('/api/episodes/' + id + '/watched', body);
   }
 
   async function loadGuide(id) {

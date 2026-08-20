@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from app import watching
 from app.clients.http import UpstreamError
 from app.clients.sonarr import SonarrClient
 from app.clients.tmdb import TmdbClient
@@ -107,6 +108,72 @@ async def _pull_ratings(
     if not rated:
         return 0, "no ratings: TMDB has no scores for this series"
     return rated, f"{rated} episode(s) rated"
+
+
+def _outcome(result) -> JSONResponse:
+    return JSONResponse(
+        {
+            "ok": result.ok,
+            "detail": result.detail,
+            "marked": result.marked,
+            "cleared": result.cleared,
+        },
+        status_code=200 if result.ok else 409,
+    )
+
+
+@router.post("/api/series/{series_id}/refresh-watched")
+async def refresh_watched(request: Request, series_id: int) -> JSONResponse:
+    """Re-read this show's watch state from Plex, now.
+
+    The hourly sweep gets there eventually. This is for when you have just
+    watched something and want the page to agree with you.
+    """
+    return _outcome(
+        await watching.refresh(int(request.state.user["id"]), series_id)
+    )
+
+
+@router.post("/api/series/{series_id}/watched")
+async def mark_series_watched(request: Request, series_id: int) -> JSONResponse:
+    """Mark a whole show, or one season, watched or unwatched — in Plex.
+
+    Not locally: Plex is authoritative for anyone with a token, so a mark
+    that did not reach it would be cleared by the next sweep. Writing to
+    Plex is the only way to make it stick, which is also why it needs your
+    own token rather than the server's.
+    """
+    form = await request.form()
+    watched = str(form.get("watched", "true")).lower() not in ("false", "0", "off")
+    raw_season = str(form.get("season", "")).strip()
+    season = int(raw_season) if raw_season else None
+
+    return _outcome(
+        await watching.set_watched(
+            int(request.state.user["id"]), series_id,
+            watched=watched, season=season,
+        )
+    )
+
+
+@router.post("/api/episodes/{episode_id}/watched")
+async def mark_episode_watched(request: Request, episode_id: int) -> JSONResponse:
+    form = await request.form()
+    watched = str(form.get("watched", "true")).lower() not in ("false", "0", "off")
+
+    with session() as conn:
+        row = conn.execute(
+            "SELECT series_id FROM episodes WHERE id = ?", (episode_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such episode")
+
+    return _outcome(
+        await watching.set_watched(
+            int(request.state.user["id"]), int(row["series_id"]),
+            watched=watched, episode_id=episode_id,
+        )
+    )
 
 
 @router.get("/person/{tmdb_person_id}")
