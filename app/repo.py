@@ -891,7 +891,7 @@ def mark_episodes_synced(conn: sqlite3.Connection, series_id: int) -> None:
 
 
 def episodes_by_season(
-    conn: sqlite3.Connection, series_id: int
+    conn: sqlite3.Connection, series_id: int, user_id: int = 0
 ) -> list[tuple[int, list[sqlite3.Row]]]:
     """Every episode we hold, grouped by season, in broadcast order.
 
@@ -904,8 +904,10 @@ def episodes_by_season(
     """
     rows = list(
         conn.execute(
-            "SELECT * FROM episodes WHERE series_id = ? ORDER BY season ASC, episode ASC",
-            (series_id,),
+            "SELECT e.*, w.watched_at FROM episodes e "
+            "LEFT JOIN episode_watches w ON w.episode_id = e.id AND w.user_id = ? "
+            "WHERE e.series_id = ? ORDER BY e.season ASC, e.episode ASC",
+            (user_id, series_id),
         )
     )
     seasons: dict[int, list[sqlite3.Row]] = {}
@@ -1036,7 +1038,9 @@ def retire(conn: sqlite3.Connection, user_id: int, series_ids: list[int]) -> tup
 
 
 
-def season_progress(conn: sqlite3.Connection, series_id: int) -> dict[int, dict[str, int]]:
+def season_progress(
+    conn: sqlite3.Connection, series_id: int, user_id: int = 0
+) -> dict[int, dict[str, int]]:
     """Per season: how much exists, has aired, and is actually here.
 
     Answers "am I waiting or am I behind?", which otherwise needs the episode
@@ -1044,15 +1048,18 @@ def season_progress(conn: sqlite3.Connection, series_id: int) -> dict[int, dict[
     """
     rows = conn.execute(
         """
-        SELECT season,
+        SELECT e.season AS season,
                count(*) AS total,
-               sum(CASE WHEN air_date_utc IS NOT NULL AND air_date_utc <= ?
+               sum(CASE WHEN e.air_date_utc IS NOT NULL AND e.air_date_utc <= ?
                         THEN 1 ELSE 0 END) AS aired,
-               sum(CASE WHEN has_file = 1 OR in_plex = 1 THEN 1 ELSE 0 END) AS have,
-               sum(CASE WHEN in_plex = 1 THEN 1 ELSE 0 END) AS confirmed
-        FROM episodes WHERE series_id = ? GROUP BY season
+               sum(CASE WHEN e.has_file = 1 OR e.in_plex = 1 THEN 1 ELSE 0 END) AS have,
+               sum(CASE WHEN e.in_plex = 1 THEN 1 ELSE 0 END) AS confirmed,
+               sum(CASE WHEN w.watched_at IS NOT NULL THEN 1 ELSE 0 END) AS seen
+        FROM episodes e
+        LEFT JOIN episode_watches w ON w.episode_id = e.id AND w.user_id = ?
+        WHERE e.series_id = ? GROUP BY e.season
         """,
-        (utcnow(), series_id),
+        (utcnow(), user_id, series_id),
     )
     return {
         int(r["season"]): {
@@ -1060,6 +1067,7 @@ def season_progress(conn: sqlite3.Connection, series_id: int) -> dict[int, dict[
             "aired": int(r["aired"] or 0),
             "have": int(r["have"] or 0),
             "confirmed": int(r["confirmed"] or 0),
+            "seen": int(r["seen"] or 0),
         }
         for r in rows
     }

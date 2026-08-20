@@ -140,6 +140,7 @@ def decorate(row: Any, *, now: datetime | None = None, tz: str = "Europe/London"
         "air_local": air.astimezone(ZoneInfo(tz)) if air else None,
         "code": f"S{row['season']:02d}E{row['episode']:02d}",
         "milestone": milestone(row),
+        "watched": bool(_field(row, "watched_at")),
         "progress": _field(row, "dl_percent"),
         "time_left": _field(row, "dl_time_left"),
     }

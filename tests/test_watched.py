@@ -321,3 +321,53 @@ async def test_your_own_play_for_an_unsynced_episode_is_counted(db, admin_token,
     detail = await tautulli_sync.sync_tautulli_history()
     assert "1 episode(s) watched" in detail
     assert "1 of yours are for episodes not synced here" in detail
+
+
+# ── Per row on the series page ──
+
+
+def test_a_watched_episode_says_so_on_its_own_row(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = seed(conn, user_id)
+        mark_watched(conn, user_id, "9001", 1, 2, utcnow())
+    body = client.get(f"/series/{sid}").text
+    assert "✓ watched" in body
+    assert 'class="ep state-available seen"' in body
+
+
+def test_an_unwatched_episode_keeps_its_availability(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = seed(conn, user_id)
+    body = client.get(f"/series/{sid}").text
+    assert "✓ watched" not in body
+    assert "in Plex" in body
+
+
+def test_the_season_header_counts_what_you_have_seen(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = seed(conn, user_id)
+        mark_watched(conn, user_id, "9001", 1, 1, utcnow())
+        mark_watched(conn, user_id, "9001", 1, 2, utcnow())
+    assert "2/3 watched" in client.get(f"/series/{sid}").text
+
+
+def test_a_season_you_have_not_started_still_reports_downloads(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = seed(conn, user_id)
+    assert "3/3 downloaded" in client.get(f"/series/{sid}").text
+
+
+def test_another_users_viewing_does_not_mark_your_rows(db, account):
+    admin_tok, marc = account()
+    _, bob = account("bob", "user")
+    with session() as conn:
+        sid = seed(conn, marc)
+        mark_watched(conn, bob, "9001", 1, 1, utcnow())
+
+    c = TestClient(app)
+    c.cookies.set(auth.COOKIE, admin_tok)
+    assert "✓ watched" not in c.get(f"/series/{sid}").text

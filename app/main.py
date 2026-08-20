@@ -1344,8 +1344,9 @@ async def series_detail(request: Request, series_id: int):
         row = get_series(conn, series_id, int(request.state.user["id"]))
         if row is None:
             raise HTTPException(status_code=404, detail="no such series")
-        seasons = episodes_by_season(conn, series_id)
-        progress = season_progress(conn, series_id)
+        viewer = int(request.state.user["id"])
+        seasons = episodes_by_season(conn, series_id, viewer)
+        progress = season_progress(conn, series_id, viewer)
         genres = genres_for(conn, series_id)
 
     return templates.TemplateResponse(
