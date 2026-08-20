@@ -11,8 +11,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from app.clients.sonarr import SonarrEpisode
-from app.db import session, utcnow
+from app.db import session
 from app.repo import upsert_episode
+from tests.factories import make_series
 
 
 def episode(number=1, *, has_file=False, aired_days_ago=1000, season=1):
@@ -32,13 +33,7 @@ def episode(number=1, *, has_file=False, aired_days_ago=1000, season=1):
 
 
 def add_series(conn):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, created_at, updated_at) "
-        "VALUES ('Line of Duty', 'line of duty', ?, ?)",
-        (now, now),
-    )
-    return int(cur.lastrowid)
+    return make_series(conn, "Line of Duty")
 
 
 def arrived_of(conn, series_id, number, season=1):

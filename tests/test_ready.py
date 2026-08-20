@@ -13,9 +13,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import auth
-from app.db import session, utcnow
+from app.db import session
 from app.main import app
 from app.repo import READY_DAYS
+from tests.factories import iso, make_episode, make_series
 
 
 @pytest.fixture
@@ -28,28 +29,13 @@ def client(db, admin_token):
 
 def seed(conn, user_id, *, title="Silo", episodes=(1,), days_ago=1, has_file=1,
          pinned=True, tvdb_id=None):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tvdb_id, pinned, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (title, title.lower(), tvdb_id, int(pinned), now, now),
-    )
-    sid = int(cur.lastrowid)
-    arrived = (
-        (datetime.now(UTC) - timedelta(days=days_ago)).isoformat() if has_file else None
-    )
+    sid = make_series(conn, title, tvdb_id=tvdb_id, pinned=int(pinned),
+                      pinned_by=user_id if pinned else None)
+    arrived = iso(days=-days_ago) if has_file else None
     for number in episodes:
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-            "has_file, in_plex, monitored, arrived_at, updated_at) "
-            "VALUES (?, 3, ?, ?, '2026-08-01T20:00:00+00:00', ?, 0, 1, ?, ?)",
-            (sid, number, f"Episode {number}", has_file, arrived, now),
-        )
-    if pinned:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (user_id, sid, now),
-        )
+        make_episode(conn, sid, season=3, episode=number,
+                     air_date_utc="2026-08-01T20:00:00+00:00", has_file=has_file,
+                     in_plex=0, arrived_at=arrived)
     return sid
 
 
@@ -136,25 +122,11 @@ def seed_no_stamp(conn, user_id, *, title="Street Cops", aired_days_ago=3, tvdb_
                   in_plex=1):
     """In Plex, but Pinnarr never watched the file appear — which is true of
     everything that was already there before it was installed."""
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tvdb_id, pinned, created_at, updated_at) "
-        "VALUES (?, ?, ?, 1, ?, ?)",
-        (title, title.lower(), tvdb_id, now, now),
-    )
-    sid = int(cur.lastrowid)
-    aired = (datetime.now(UTC) - timedelta(days=aired_days_ago)).isoformat()
-    conn.execute(
-        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-        "has_file, in_plex, monitored, arrived_at, updated_at) "
-        "VALUES (?, 2, 4, 'Episode 4', ?, 1, ?, 1, NULL, ?)",
-        (sid, aired, in_plex, now),
-    )
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
+    sid = make_series(conn, title, tvdb_id=tvdb_id, pinned_by=user_id)
+    make_episode(conn, sid, season=2, episode=4, air_date_utc=iso(days=-aired_days_ago),
+                 has_file=1, in_plex=in_plex, arrived_at=None)
     return sid
+
 
 
 def test_something_in_plex_that_aired_recently_counts(client, admin_token):
@@ -209,26 +181,12 @@ def test_a_file_for_something_not_yet_aired_is_not_ready(client, admin_token):
 
 
 def seed_runtime(conn, user_id, *, title="Silo", runtimes=(60,), tvdb_id=None):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tvdb_id, pinned, created_at, updated_at) "
-        "VALUES (?, ?, ?, 1, ?, ?)",
-        (title, title.lower(), tvdb_id, now, now),
-    )
-    sid = int(cur.lastrowid)
-    aired = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    sid = make_series(conn, title, tvdb_id=tvdb_id, pinned_by=user_id)
     for index, runtime in enumerate(runtimes, start=1):
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-            "has_file, in_plex, monitored, runtime, updated_at) "
-            "VALUES (?, 1, ?, ?, ?, 1, 1, 1, ?, ?)",
-            (sid, index, f"Episode {index}", aired, runtime, now),
-        )
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
+        make_episode(conn, sid, season=1, episode=index, air_date_utc=iso(days=-2),
+                     has_file=1, in_plex=1, runtime=runtime)
     return sid
+
 
 
 def test_a_group_shows_how_long_it_would_take(client, admin_token):

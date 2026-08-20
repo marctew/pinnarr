@@ -8,9 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import auth
-from app.db import session, utcnow
+from app.db import session
 from app.episodes import AVAILABLE, AWAITING, MISSING, UPCOMING, episode_state
 from app.main import app
+from tests.factories import iso, make_episode, make_series, watch
 
 NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
 
@@ -72,26 +73,12 @@ def test_an_undated_episode_does_not_crash_and_reads_as_upcoming():
 
 
 def seed(conn, *, pinned=1, air_offset_days=2, has_file=0, outlook="dated", user_id=1):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, pinned, outlook, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        ("Severance", "severance", pinned, outlook, now, now),
-    )
-    sid = int(cur.lastrowid)
-    air = datetime.now(UTC) + timedelta(days=air_offset_days)
-    conn.execute(
-        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-        "has_file, in_plex, monitored, updated_at) VALUES (?, 2, 7, 'Cold Harbor', ?, ?, 0, 1, ?)",
-        (sid, air.isoformat(), has_file, now),
-    )
     # Pins live in their own table now; series.pinned is only the derived
     # "anyone pinned this" flag. user 1 is the admin the fixture creates.
-    if pinned:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (user_id, sid, now),
-        )
+    sid = make_series(conn, "Severance", pinned=pinned, outlook=outlook,
+                      pinned_by=user_id if pinned else None)
+    make_episode(conn, sid, season=2, episode=7, title="Cold Harbor",
+                 air_date_utc=iso(days=air_offset_days), has_file=has_file, in_plex=0)
     return sid
 
 
@@ -266,24 +253,9 @@ def test_rows_show_the_air_time(client):
 def seed_unmonitored(conn, *, user_id=1, days=-5):
     """A special the user told Sonarr not to fetch — it aired, and it is
     never going to turn up."""
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, pinned, outlook, created_at, updated_at) "
-        "VALUES ('Taskmaster', 'taskmaster', 1, 'dated', ?, ?)",
-        (now, now),
-    )
-    sid = int(cur.lastrowid)
-    air = datetime.now(UTC) + timedelta(days=days)
-    conn.execute(
-        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-        "has_file, in_plex, monitored, updated_at) "
-        "VALUES (?, 0, 304, 'My Ultimate Episode', ?, 0, 0, 0, ?)",
-        (sid, air.isoformat(), now),
-    )
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
+    sid = make_series(conn, "Taskmaster", outlook="dated", pinned_by=user_id)
+    make_episode(conn, sid, season=0, episode=304, title="My Ultimate Episode",
+                 air_date_utc=iso(days=days), has_file=0, in_plex=0, monitored=0)
     return sid
 
 
@@ -343,24 +315,9 @@ def seed_special(conn, *, user_id=1, days=-5, monitored=1):
     """A Christmas one-off you never wanted. Sonarr does not reliably mark
     these unmonitored even when the season is, so the monitored toggle cannot
     hide them on its own."""
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, pinned, outlook, created_at, updated_at) "
-        "VALUES ('Taskmaster', 'taskmaster', 1, 'dated', ?, ?)",
-        (now, now),
-    )
-    sid = int(cur.lastrowid)
-    air = datetime.now(UTC) + timedelta(days=days)
-    conn.execute(
-        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-        "has_file, in_plex, monitored, updated_at) "
-        "VALUES (?, 0, 304, 'My Ultimate Episode', ?, 0, 0, ?, ?)",
-        (sid, air.isoformat(), monitored, now),
-    )
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
+    sid = make_series(conn, "Taskmaster", outlook="dated", pinned_by=user_id)
+    make_episode(conn, sid, season=0, episode=304, title="My Ultimate Episode",
+                 air_date_utc=iso(days=days), has_file=0, in_plex=0, monitored=monitored)
     return sid
 
 
@@ -412,31 +369,12 @@ def test_ordinary_seasons_are_untouched(client):
 
 def seed_watched(conn, *, user_id=1, days=-6, watched=True):
     """Something that aired, is in Plex, and has been seen."""
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, plex_rating_key, pinned, outlook, "
-        "created_at, updated_at) VALUES ('The Undeclared War', 'undeclared', '55', 1, "
-        "'ended', ?, ?)",
-        (now, now),
-    )
-    sid = int(cur.lastrowid)
-    air = (datetime.now(UTC) + timedelta(days=days)).isoformat()
-    cur = conn.execute(
-        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-        "has_file, in_plex, monitored, plex_rating_key, updated_at) "
-        "VALUES (?, 2, 5, 'Episode 5', ?, 1, 1, 1, '901', ?)",
-        (sid, air, now),
-    )
-    eid = int(cur.lastrowid)
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
+    sid = make_series(conn, "The Undeclared War", sort_title="undeclared",
+                      plex_rating_key="55", outlook="ended", pinned_by=user_id)
+    eid = make_episode(conn, sid, season=2, episode=5, air_date_utc=iso(days=days),
+                       has_file=1, in_plex=1, plex_rating_key="901")
     if watched:
-        conn.execute(
-            "INSERT INTO episode_watches (user_id, episode_id, watched_at) "
-            "VALUES (?, ?, ?)", (user_id, eid, now),
-        )
+        watch(conn, user_id, eid)
     return sid
 
 

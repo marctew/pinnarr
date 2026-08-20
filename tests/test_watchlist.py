@@ -18,6 +18,7 @@ from app.config import save_settings
 from app.db import session, utcnow
 from app.jobs.watchlist_sync import sync_watchlist
 from app.main import app
+from tests.factories import make_series
 
 GUID = "plex://show/5d9c0874ffd9ef001e99607a"
 KEY = "5d9c0874ffd9ef001e99607a"
@@ -35,20 +36,7 @@ def client(db, admin_token):
 
 
 def add(conn, title="Silo", *, guid=GUID, pinned_by=None):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, plex_guid, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (title, title.lower(), guid, now, now),
-    )
-    sid = int(cur.lastrowid)
-    if pinned_by:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (pinned_by, sid, now),
-        )
-        conn.execute("UPDATE series SET pinned = 1 WHERE id = ?", (sid,))
-    return sid
+    return make_series(conn, title, plex_guid=guid, pinned_by=pinned_by)
 
 
 def remember(conn, user_id, series_id, *, pinned, listed):

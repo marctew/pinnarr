@@ -7,10 +7,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.clients.sonarr import SonarrEpisode
-from app.db import session, utcnow
+from app.db import session
 from app.episodes import milestone
 from app.jobs.notifications import notify_schedule_changes
 from app.repo import upsert_episode
+from tests.factories import make_series
 
 
 def row(**kw):
@@ -66,18 +67,8 @@ def episode(air: datetime | None, *, number=1):
 
 
 def add_series(conn, *, pinned_by=None, topic="marc"):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, pinned, created_at, updated_at) "
-        "VALUES ('Silo', 'silo', 1, ?, ?)",
-        (now, now),
-    )
-    sid = int(cur.lastrowid)
+    sid = make_series(conn, "Silo", pinned=1, pinned_by=pinned_by)
     if pinned_by:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (pinned_by, sid, now),
-        )
         conn.execute("UPDATE users SET ntfy_topic = ? WHERE id = ?", (topic, pinned_by))
     return sid
 

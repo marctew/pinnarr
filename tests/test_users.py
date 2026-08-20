@@ -11,18 +11,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import auth
-from app.db import session, utcnow
+from app.db import session
 from app.main import app
+from tests.factories import make_series
 
 
 def add_series(conn, title="Severance"):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, outlook, created_at, updated_at) "
-        "VALUES (?, ?, 'dated', ?, ?)",
-        (title, title.lower(), now, now),
-    )
-    return int(cur.lastrowid)
+    return make_series(conn, title, outlook="dated")
 
 
 def signed_in(token: str) -> TestClient:

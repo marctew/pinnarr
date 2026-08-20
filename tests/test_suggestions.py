@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 import httpx
 import pytest
 import respx
@@ -15,6 +13,7 @@ from app.db import session, utcnow
 from app.jobs.suggest import refresh_suggestions
 from app.main import app
 from app.repo import plex_shortfall, suggested
+from tests.factories import iso, make_episode, make_series
 
 TMDB = "https://api.themoviedb.org/3"
 
@@ -30,33 +29,20 @@ def client(db, admin_token):
 
 def add(conn, title, *, tmdb_id=None, pinned_by=None, plex_key=None, sonarr_id=None,
         checked=True):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tmdb_id, plex_rating_key, sonarr_id, "
-        "plex_checked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, title.lower(), tmdb_id, plex_key, sonarr_id,
-         now if checked else None, now, now),
+    return make_series(
+        conn, title, tmdb_id=tmdb_id, plex_rating_key=plex_key, sonarr_id=sonarr_id,
+        plex_checked_at=utcnow() if checked else None, pinned_by=pinned_by,
     )
-    sid = int(cur.lastrowid)
-    if pinned_by:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (pinned_by, sid, now),
-        )
-        conn.execute("UPDATE series SET pinned = 1 WHERE id = ?", (sid,))
-    return sid
 
 
 def episode(conn, series_id, number, *, has_file=0, in_plex=0, season=1, rating=None,
              days_ago=2):
     # Recent by default: the calendar window is -30 to +120 days, so a date
     # from January would be correctly ignored and prove nothing.
-    aired = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
-    conn.execute(
-        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-        "has_file, in_plex, monitored, rating, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
-        (series_id, season, number, f"E{number}", aired, has_file, in_plex, rating, utcnow()),
+    make_episode(
+        conn, series_id, season=season, episode=number, title=f"E{number}",
+        air_date_utc=iso(days=-days_ago), has_file=has_file, in_plex=in_plex,
+        rating=rating,
     )
 
 

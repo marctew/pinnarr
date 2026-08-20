@@ -17,6 +17,7 @@ from app.config import save_settings
 from app.db import session, utcnow
 from app.jobs.tag_sync import sync_tags, tag_label
 from app.main import app
+from tests.factories import make_series
 
 SONARR = "http://sonarr.lan:8989"
 TAG_ID = 7
@@ -34,20 +35,7 @@ def client(db, admin_token):
 
 
 def add(conn, title="Silo", *, sonarr_id=101, pinned_by=None):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, sonarr_id, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (title, title.lower(), sonarr_id, now, now),
-    )
-    sid = int(cur.lastrowid)
-    if pinned_by:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (pinned_by, sid, now),
-        )
-        conn.execute("UPDATE series SET pinned = 1 WHERE id = ?", (sid,))
-    return sid
+    return make_series(conn, title, sonarr_id=sonarr_id, pinned_by=pinned_by)
 
 
 def remember(conn, user_id, series_id, *, pinned, tagged):

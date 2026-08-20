@@ -14,8 +14,9 @@ from fastapi.testclient import TestClient
 
 from app import auth, backup
 from app.config import get_settings, save_settings
-from app.db import session, utcnow
+from app.db import session
 from app.main import app
+from tests.factories import make_series
 
 
 @pytest.fixture
@@ -27,13 +28,7 @@ def client(db, admin_token):
 
 
 def add_series(conn, title="Silo", tvdb_id=12345, year=2023):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tvdb_id, year, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (title, title.lower(), tvdb_id, year, now, now),
-    )
-    return int(cur.lastrowid)
+    return make_series(conn, title, tvdb_id=tvdb_id, year=year)
 
 
 # ── Export ──

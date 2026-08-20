@@ -14,9 +14,10 @@ from fastapi.testclient import TestClient
 
 from app import auth
 from app.config import save_settings
-from app.db import session, utcnow
+from app.db import session
 from app.jobs.notifications import _summarise, notify_pending
 from app.main import app
+from tests.factories import iso, make_episode, make_series
 
 SECRET = "batching-secret"
 
@@ -49,26 +50,14 @@ def client(db, admin_token):
 
 def seed(conn, user_id, *, episodes, arrived_minutes_ago=10, season=3, title="Silo",
          tvdb_id=12345, sonarr_id=7):
-    now = utcnow()
     # tvdb_id is UNIQUE, so a second series in one test needs its own.
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tvdb_id, sonarr_id, pinned, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-        (title, title.lower(), tvdb_id, sonarr_id, now, now),
-    )
-    sid = int(cur.lastrowid)
-    arrived = (datetime.now(UTC) - timedelta(minutes=arrived_minutes_ago)).isoformat()
+    sid = make_series(conn, title, tvdb_id=tvdb_id, sonarr_id=sonarr_id,
+                      pinned_by=user_id)
+    arrived = iso(hours=-arrived_minutes_ago / 60)
     for number in episodes:
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-            "has_file, in_plex, monitored, arrived_at, updated_at) "
-            "VALUES (?, ?, ?, ?, '2026-08-01T20:00:00+00:00', 1, 0, 1, ?, ?)",
-            (sid, season, number, f"Episode {number}", arrived, now),
-        )
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
+        make_episode(conn, sid, season=season, episode=number,
+                     air_date_utc="2026-08-01T20:00:00+00:00", has_file=1,
+                     in_plex=0, arrived_at=arrived)
     return sid
 
 

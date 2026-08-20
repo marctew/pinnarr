@@ -11,6 +11,7 @@ from app import auth
 from app.db import session, utcnow
 from app.jobs.notifications import notify_new_seasons
 from app.main import app
+from tests.factories import iso, make_episode, make_series, pin
 
 
 @pytest.fixture
@@ -37,20 +38,10 @@ def pushes(monkeypatch):
 
 
 def add(conn, title, *, outlook="ended", next_airing=None, pinned_by=None, tvdb_id=None):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tvdb_id, outlook, next_airing, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (title, title.lower(), tvdb_id, outlook, next_airing, now, now),
+    return make_series(
+        conn, title, tvdb_id=tvdb_id, outlook=outlook, next_airing=next_airing,
+        pinned_by=pinned_by,
     )
-    sid = int(cur.lastrowid)
-    if pinned_by:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (pinned_by, sid, now),
-        )
-        conn.execute("UPDATE series SET pinned = 1 WHERE id = ?", (sid,))
-    return sid
 
 
 # ── Retiring ──
@@ -202,21 +193,14 @@ async def test_nobody_without_a_topic_is_nudged(client, pushes):
 
 def gap_seed(conn, user_id, *, title="Line of Duty", missing=(4,), have=(1, 2, 3),
              season=2, tvdb_id=None, specials=False, synced=True):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tvdb_id, pinned, episodes_synced_at, "
-        "created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)",
-        (title, title.lower(), tvdb_id, now if synced else None, now, now),
-    )
-    sid = int(cur.lastrowid)
-    aired = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+    sid = make_series(conn, title, tvdb_id=tvdb_id,
+                      episodes_synced_at=utcnow() if synced else None,
+                      pinned_by=user_id)
+    aired = iso(days=-400)
 
     def episode(number, has_file, in_season):
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-            "has_file, in_plex, monitored, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?)",
-            (sid, in_season, number, f"Episode {number}", aired, has_file, now),
-        )
+        make_episode(conn, sid, season=in_season, episode=number,
+                     air_date_utc=aired, has_file=has_file, in_plex=0)
 
     for number in have:
         episode(number, 1, season)
@@ -224,12 +208,8 @@ def gap_seed(conn, user_id, *, title="Line of Duty", missing=(4,), have=(1, 2, 3
         episode(number, 0, season)
     if specials:
         episode(99, 0, 0)
-
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
     return sid
+
 
 
 def test_a_hole_in_a_season_is_found(client, admin_token):
@@ -257,23 +237,10 @@ def test_a_missing_special_is_not_a_hole_in_a_story(client, admin_token):
 
 def test_something_not_yet_aired_is_not_missing(client, admin_token):
     _, user_id = admin_token
-    now = utcnow()
     with session() as conn:
-        cur = conn.execute(
-            "INSERT INTO series (title, sort_title, pinned, created_at, updated_at) "
-            "VALUES ('Silo', 'silo', 1, ?, ?)", (now, now),
-        )
-        sid = int(cur.lastrowid)
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-            "has_file, in_plex, monitored, updated_at) "
-            "VALUES (?, 3, 9, 'Later', ?, 0, 0, 1, ?)",
-            (sid, (datetime.now(UTC) + timedelta(days=7)).isoformat(), now),
-        )
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (user_id, sid, now),
-        )
+        sid = make_series(conn, "Silo", pinned_by=user_id)
+        make_episode(conn, sid, season=3, episode=9, title="Later",
+                     air_date_utc=iso(days=7), has_file=0, in_plex=0)
     assert "Silo" not in client.get("/gaps").text
 
 
@@ -402,10 +369,7 @@ def test_one_persons_undo_cannot_restore_anothers_pins(db, account):
     _, bob = account("bob", "user")
     with session() as conn:
         sid = add(conn, "Severance", pinned_by=marc)
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (bob, sid, utcnow()),
-        )
+        pin(conn, bob, sid)
         retire(conn, marc, [sid])
         assert latest_retire_batch(conn, bob) is None
         assert undo_retire(conn, bob, "whatever") == 0

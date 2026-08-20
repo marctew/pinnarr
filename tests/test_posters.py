@@ -14,21 +14,16 @@ from fastapi.testclient import TestClient
 from app import auth, media
 from app.clients.sonarr import _poster_from
 from app.config import save_settings
-from app.db import session, utcnow
+from app.db import session
 from app.main import app
+from tests.factories import make_series
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
 REMOTE = "https://artworks.thetvdb.com/banners/posters/silo.jpg"
 
 
 def add(conn, *, plex_thumb=None, remote=None):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, poster_url, remote_poster, "
-        "created_at, updated_at) VALUES ('Silo', 'silo', ?, ?, ?, ?)",
-        (plex_thumb, remote, now, now),
-    )
-    return int(cur.lastrowid)
+    return make_series(conn, poster_url=plex_thumb, remote_poster=remote)
 
 
 @pytest.fixture

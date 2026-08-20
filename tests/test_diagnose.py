@@ -14,11 +14,12 @@ from fastapi.testclient import TestClient
 
 from app import auth
 from app.config import save_settings
-from app.db import session, utcnow
+from app.db import session
 from app.diagnose import _summarise
 from app.episodes import episode_state
 from app.jobs.queue_sync import sync_queue
 from app.main import app
+from tests.factories import make_episode, make_series
 
 SONARR = "http://sonarr.lan:8989"
 
@@ -33,20 +34,11 @@ def client(db, admin_token):
 
 
 def seed(conn, *, sonarr_episode_id=555):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, pinned, created_at, updated_at) "
-        "VALUES ('Silo', 'silo', 1, ?, ?)",
-        (now, now),
-    )
-    sid = int(cur.lastrowid)
-    cur = conn.execute(
-        "INSERT INTO episodes (series_id, sonarr_episode_id, season, episode, title, "
-        "air_date_utc, has_file, in_plex, monitored, updated_at) "
-        "VALUES (?, ?, 3, 8, 'Radio', '2026-08-10T20:00:00+00:00', 0, 0, 1, ?)",
-        (sid, sonarr_episode_id, now),
-    )
-    return sid, int(cur.lastrowid)
+    sid = make_series(conn, "Silo", pinned=1)
+    eid = make_episode(conn, sid, season=3, episode=8, title="Radio",
+                       sonarr_episode_id=sonarr_episode_id,
+                       air_date_utc="2026-08-10T20:00:00+00:00", has_file=0, in_plex=0)
+    return sid, eid
 
 
 # ── The state ──

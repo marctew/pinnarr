@@ -14,37 +14,20 @@ from fastapi.testclient import TestClient
 
 from app import auth, webhook
 from app.config import save_settings
-from app.db import session, utcnow
+from app.db import session
 from app.main import app
+from tests.factories import make_episode, make_series, pin
 
 SECRET = "a-real-webhook-secret"
 
 
 def seed(conn, *, tvdb_id=371980, pinned_by=None, topic="marc"):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, tvdb_id, sonarr_id, outlook, "
-        "created_at, updated_at) VALUES ('Severance', 'severance', ?, 55, 'dated', ?, ?)",
-        (tvdb_id, now, now),
-    )
-    sid = int(cur.lastrowid)
-    conn.execute(
-        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-        "has_file, in_plex, monitored, updated_at) "
-        "VALUES (?, 2, 7, 'Cold Harbor', '2026-08-19T20:00:00+00:00', 0, 0, 1, ?)",
-        (sid, now),
-    )
+    sid = make_series(conn, "Severance", tvdb_id=tvdb_id, sonarr_id=55,
+                      outlook="dated", pinned_by=pinned_by)
+    make_episode(conn, sid, season=2, episode=7, title="Cold Harbor",
+                 air_date_utc="2026-08-19T20:00:00+00:00", has_file=0, in_plex=0)
     if pinned_by:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (pinned_by, sid, now),
-        )
-        conn.execute(
-            "UPDATE series SET pinned = 1 WHERE id = ?", (sid,)
-        )
-        conn.execute(
-            "UPDATE users SET ntfy_topic = ? WHERE id = ?", (topic, pinned_by)
-        )
+        conn.execute("UPDATE users SET ntfy_topic = ? WHERE id = ?", (topic, pinned_by))
     return sid
 
 
@@ -301,10 +284,7 @@ def test_everyone_who_pinned_it_gets_their_own_push(client, admin_token, account
     _, bob_id = account("bob", "user")
     with session() as conn:
         sid = seed(conn, pinned_by=admin_id, topic="marc-shows")
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (bob_id, sid, utcnow()),
-        )
+        pin(conn, bob_id, sid)
         conn.execute("UPDATE users SET ntfy_topic = 'bob-shows' WHERE id = ?", (bob_id,))
 
     client.post(f"/hooks/sonarr?secret={SECRET}", json=arrival())

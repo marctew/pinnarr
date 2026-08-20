@@ -14,6 +14,7 @@ import pytest
 from app import auth, media
 from app.db import session, utcnow
 from app.jobs import housekeeping as hk
+from tests.factories import make_series
 
 
 @pytest.fixture
@@ -24,12 +25,7 @@ def cache(tmp_path, monkeypatch):
 
 
 def add_series(conn, title="Silo"):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        (title, title.lower(), now, now),
-    )
-    return int(cur.lastrowid)
+    return make_series(conn, title)
 
 
 def test_expired_sessions_are_collected(db):

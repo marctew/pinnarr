@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import auth
-from app.db import session, utcnow
+from app.db import session
 from app.main import app
 from app.repo import (
     PAGE_SIZE,
@@ -20,23 +20,17 @@ from app.repo import (
     matching_ids,
     query_series,
 )
+from tests.factories import make_series
 
 
 def add(conn, title, **kw):
-    now = utcnow()
     fields = {
-        "tvdb_id": None, "plex_section_id": 2, "sort_title": title.lower(),
-        "year": 2020, "network": "BBC", "sonarr_status": "continuing",
-        "outlook": "dated", "pinned": 0, "last_watched_at": None, "next_airing": None,
+        "tvdb_id": None, "plex_section_id": 2, "year": 2020, "network": "BBC",
+        "sonarr_status": "continuing", "outlook": "dated", "pinned": 0,
+        "last_watched_at": None, "next_airing": None,
     }
     fields.update(kw)
-    cols = ", ".join(["title", "created_at", "updated_at", *fields])
-    marks = ", ".join(["?"] * (3 + len(fields)))
-    cur = conn.execute(
-        f"INSERT INTO series ({cols}) VALUES ({marks})",
-        [title, now, now, *fields.values()],
-    )
-    return int(cur.lastrowid)
+    return make_series(conn, title, **fields)
 
 
 def genre(conn, series_id, name):

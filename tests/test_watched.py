@@ -23,6 +23,7 @@ from app.jobs.availability import sync_availability
 from app.jobs.tautulli_sync import sync_recent_history
 from app.main import app
 from app.repo import arrival_is_plausible, mark_watched
+from tests.factories import iso, make_episode, make_series, pin
 
 TAUTULLI = "http://tautulli.lan:8181"
 
@@ -37,25 +38,10 @@ def client(db, admin_token):
 
 
 def seed(conn, user_id, *, plex_key="9001", episodes=(1, 2, 3), days_ago=2):
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, plex_rating_key, pinned, "
-        "created_at, updated_at) VALUES ('Silo', 'silo', ?, 1, ?, ?)",
-        (plex_key, now, now),
-    )
-    sid = int(cur.lastrowid)
-    aired = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+    sid = make_series(conn, "Silo", plex_rating_key=plex_key, pinned_by=user_id)
     for number in episodes:
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-            "has_file, in_plex, monitored, runtime, updated_at) "
-            "VALUES (?, 1, ?, ?, ?, 1, 1, 1, 45, ?)",
-            (sid, number, f"Episode {number}", aired, now),
-        )
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
+        make_episode(conn, sid, season=1, episode=number,
+                     air_date_utc=iso(days=-days_ago), has_file=1, in_plex=1, runtime=45)
     return sid
 
 
@@ -212,10 +198,8 @@ def test_one_persons_viewing_is_not_anothers(db, account):
     _, bob = account("bob", "user")
     with session() as conn:
         seed(conn, marc)
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) "
-            "SELECT ?, id, ? FROM series", (bob, utcnow()),
-        )
+        for row in conn.execute("SELECT id FROM series"):
+            pin(conn, bob, int(row["id"]))
         mark_watched(conn, marc, "9001", 1, 1, utcnow())
 
     from app.repo import watch_progress
@@ -381,27 +365,14 @@ def test_another_users_viewing_does_not_mark_your_rows(db, account):
 def part_watched(conn, user_id, *, seen_through=6, total=10, season=3):
     """A season you are partway through, which is the normal state of a show
     you are actually following."""
-    now = utcnow()
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, plex_rating_key, pinned, "
-        "created_at, updated_at) VALUES ('Slow Horses', 'slow horses', '7777', 1, ?, ?)",
-        (now, now),
-    )
-    sid = int(cur.lastrowid)
+    sid = make_series(conn, "Slow Horses", plex_rating_key="7777", pinned_by=user_id)
     for number in range(1, total + 1):
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-            "has_file, in_plex, monitored, updated_at) "
-            "VALUES (?, ?, ?, ?, '2024-09-22T20:00:00+00:00', 1, 1, 1, ?)",
-            (sid, season, number, f"Episode {number}", now),
-        )
-    conn.execute(
-        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-        (user_id, sid, now),
-    )
+        make_episode(conn, sid, season=season, episode=number,
+                     air_date_utc="2024-09-22T20:00:00+00:00", has_file=1, in_plex=1)
     for number in range(1, seen_through + 1):
-        mark_watched(conn, user_id, "7777", season, number, now)
+        mark_watched(conn, user_id, "7777", season, number, utcnow())
     return sid
+
 
 
 def test_the_series_page_says_where_you_are_up_to(client, admin_token):
@@ -420,12 +391,8 @@ def test_the_part_watched_season_is_the_one_left_open(client, admin_token):
     with session() as conn:
         sid = part_watched(conn, user_id, season=3)
         # A later season you have not started at all.
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-            "has_file, in_plex, monitored, updated_at) "
-            "VALUES (?, 4, 1, 'Later', '2026-04-19T20:00:00+00:00', 1, 1, 1, ?)",
-            (sid, utcnow()),
-        )
+        make_episode(conn, sid, season=4, episode=1, title="Later",
+                     air_date_utc="2026-04-19T20:00:00+00:00", has_file=1, in_plex=1)
     body = client.get(f"/series/{sid}").text
     tag = '<details class="season" open>'
     assert "Season 3" in body.split(tag)[1].split("</summary>")[0]

@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 import pytest
 from fastapi.testclient import TestClient
 
 from app import auth
-from app.db import session, utcnow
+from app.db import session
 from app.main import app
+from tests.factories import iso, make_episode, make_series, pin
 
 
 def seed(conn, **kw):
-    now = utcnow()
     fields = {
         "sort_title": "severance", "year": 2022, "network": "Apple TV+",
         "overview": "Mark leads a team of office workers.", "outlook": "dated",
@@ -22,26 +20,16 @@ def seed(conn, **kw):
         "latest_season": 2, "latest_aired_season": 2,
     }
     fields.update(kw)
-    cols = ", ".join(["title", "created_at", "updated_at", *fields])
-    marks = ", ".join(["?"] * (3 + len(fields)))
-    cur = conn.execute(
-        f"INSERT INTO series ({cols}) VALUES ({marks})",
-        ["Severance", now, now, *fields.values()],
-    )
-    sid = int(cur.lastrowid)
-    conn.execute(
-        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
-        "has_file, in_plex, monitored, updated_at) VALUES (?, 2, 7, 'Cold Harbor', ?, 1, 1, 1, ?)",
-        (sid, (datetime.now(UTC) + timedelta(days=3)).isoformat(), now),
-    )
+    sid = make_series(conn, "Severance", **fields)
+    make_episode(conn, sid, season=2, episode=7, title="Cold Harbor",
+                 air_date_utc=iso(days=3), has_file=1, in_plex=1)
     if fields.get("pinned"):
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (1, ?, ?)", (sid, now)
-        )
+        pin(conn, 1, sid)
     conn.execute("INSERT INTO genres (name) VALUES ('Sci-Fi')")
     gid = conn.execute("SELECT id FROM genres WHERE name = 'Sci-Fi'").fetchone()["id"]
     conn.execute("INSERT INTO series_genres (series_id, genre_id) VALUES (?, ?)", (sid, gid))
     return sid
+
 
 
 @pytest.fixture

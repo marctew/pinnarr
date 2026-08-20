@@ -6,32 +6,20 @@ forgotten about: every pin so far required you to remember one existed.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 import pytest
 from fastapi.testclient import TestClient
 
 from app import auth
-from app.db import session, utcnow
+from app.db import session
 from app.main import app
+from tests.factories import iso, make_episode, make_series
 
 
 def add(conn, title, *, days=None, outlook="dated", sonarr_id=None, pinned_by=None):
-    now = utcnow()
-    air = (datetime.now(UTC) + timedelta(days=days)).isoformat() if days is not None else None
-    cur = conn.execute(
-        "INSERT INTO series (title, sort_title, next_airing, outlook, sonarr_id, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (title, title.lower(), air, outlook, sonarr_id, now, now),
+    return make_series(
+        conn, title, next_airing=iso(days=days) if days is not None else None,
+        outlook=outlook, sonarr_id=sonarr_id, pinned_by=pinned_by,
     )
-    sid = int(cur.lastrowid)
-    if pinned_by:
-        conn.execute(
-            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
-            (pinned_by, sid, now),
-        )
-        conn.execute("UPDATE series SET pinned = 1 WHERE id = ?", (sid,))
-    return sid
 
 
 @pytest.fixture
@@ -137,11 +125,8 @@ def test_episodes_are_grouped_into_seasons(client):
     with session() as conn:
         sid = add(conn, "Silo", days=3, sonarr_id=12)
         for season, number in ((1, 1), (1, 2), (2, 1)):
-            conn.execute(
-                "INSERT INTO episodes (series_id, season, episode, title, "
-                "air_date_utc, monitored, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
-                (sid, season, number, f"E{number}", "2026-01-01T00:00:00+00:00", utcnow()),
-            )
+            make_episode(conn, sid, season=season, episode=number, title=f"E{number}",
+                         air_date_utc="2026-01-01T00:00:00+00:00")
     body = client.get(f"/series/{sid}").text
     assert "Season 1" in body
     assert "Season 2" in body
@@ -155,11 +140,7 @@ def test_the_latest_season_is_the_one_left_open(client):
     with session() as conn:
         sid = add(conn, "Silo", days=3, sonarr_id=12)
         for season in (1, 2, 3):
-            conn.execute(
-                "INSERT INTO episodes (series_id, season, episode, title, "
-                "air_date_utc, monitored, updated_at) VALUES (?, ?, 1, 'x', ?, 1, ?)",
-                (sid, season, "2026-01-01T00:00:00+00:00", utcnow()),
-            )
+            make_episode(conn, sid, season=season, title="x", air_date_utc="2026-01-01T00:00:00+00:00")
     body = client.get(f"/series/{sid}").text
     tag = '<details class="season" open>'
     assert body.count(tag) == 1
@@ -169,11 +150,7 @@ def test_the_latest_season_is_the_one_left_open(client):
 def test_a_series_of_only_specials_still_opens_something(client):
     with session() as conn:
         sid = add(conn, "Oddity", days=3, sonarr_id=12)
-        conn.execute(
-            "INSERT INTO episodes (series_id, season, episode, title, "
-            "air_date_utc, monitored, updated_at) VALUES (?, 0, 1, 'x', ?, 1, ?)",
-            (sid, "2026-01-01T00:00:00+00:00", utcnow()),
-        )
+        make_episode(conn, sid, season=0, title="x", air_date_utc="2026-01-01T00:00:00+00:00")
     assert "<details class=\"season\" open>" in client.get(f"/series/{sid}").text
 
 
@@ -182,11 +159,7 @@ def test_specials_sort_last_rather_than_first(client):
     with session() as conn:
         sid = add(conn, "Taskmaster", days=3, sonarr_id=12)
         for season in (0, 1):
-            conn.execute(
-                "INSERT INTO episodes (series_id, season, episode, title, "
-                "air_date_utc, monitored, updated_at) VALUES (?, ?, 1, 'x', ?, 1, ?)",
-                (sid, season, "2026-01-01T00:00:00+00:00", utcnow()),
-            )
+            make_episode(conn, sid, season=season, title="x", air_date_utc="2026-01-01T00:00:00+00:00")
     body = client.get(f"/series/{sid}").text
     assert body.index("Season 1") < body.index("Specials")
 
