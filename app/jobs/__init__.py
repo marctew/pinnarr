@@ -53,6 +53,7 @@ def build_scheduler() -> AsyncIOScheduler:
         housekeeping,
         notifications,
         plex_sync,
+        queue_sync,
         sonarr_sync,
         tautulli_sync,
         tmdb_sync,
@@ -81,6 +82,11 @@ def build_scheduler() -> AsyncIOScheduler:
         id="sonarr_calendar", replace_existing=True, max_instances=1, coalesce=True,
     )
     # Often, and usually a no-op: it only acts once a batch has settled.
+    scheduler.add_job(
+        queue_sync.sync_queue,
+        CronTrigger(minute="*/5"),
+        id="sonarr_queue", replace_existing=True, max_instances=1, coalesce=True,
+    )
     scheduler.add_job(
         notifications.notify_pending,
         CronTrigger(minute="*"),

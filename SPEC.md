@@ -17,6 +17,8 @@ Pinnarr sits next to Sonarr, Radarr, Tautulli and Plex. You **pin** the handful 
 
 It is a **curation and presentation layer**. It does not download anything, does not manage quality profiles, and does not replace any part of the existing stack.
 
+*One deliberate exception, added in v0.5:* a missing episode can be handed back to Sonarr with **Search again**. That is still curation rather than management — Pinnarr picks no release and no quality profile, it asks the tool that owns downloading to try again.
+
 ## 2. Why not just use Sonarr's calendar
 
 Sonarr already has a calendar and an iCal feed. Every existing tool in this space (`calendarr`, and its two namesakes) is a nicer skin on that same feed. They all share one flaw:
@@ -218,6 +220,7 @@ Derived at render time, not stored — so it's always correct without a migratio
 | `missing` | Aired, `!has_file`, > 48h ago | Red — something's wrong |
 | `available` | `has_file` or `in_plex` | Green — watchable |
 | `unmonitored` | Sonarr isn't chasing it | Grey — "not wanted" |
+| `downloading` | In Sonarr's queue right now | Blue — shows a percentage |
 
 `unmonitored` is checked second, right after `available`. Sonarr keeps rows
 for episodes it will never fetch — specials you skipped, seasons you don't

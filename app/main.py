@@ -35,6 +35,7 @@ from app.config import (
     save_settings,
 )
 from app.db import last_runs, migrate, session, utcnow
+from app.diagnose import why_missing
 from app.episodes import decorate, episode_state
 from app.episodes import parse as parse_dt
 from app.health import test_service
@@ -1005,6 +1006,40 @@ async def calendar_json(
             ],
         }
     )
+
+
+@app.post("/api/episodes/{episode_id}/why")
+async def episode_diagnosis(episode_id: int) -> JSONResponse:
+    """Ask Sonarr why this hasn't turned up."""
+    return JSONResponse(await why_missing(episode_id))
+
+
+@app.post("/api/episodes/{episode_id}/search")
+async def episode_search(episode_id: int) -> JSONResponse:
+    """Ask Sonarr to look again.
+
+    The only place Pinnarr writes to another service, and a deliberate
+    exception to SPEC §1. It is still curation rather than management:
+    nothing here picks a quality profile or a release, it asks the tool that
+    owns downloading to do its job.
+    """
+    with session() as conn:
+        row = conn.execute(
+            "SELECT sonarr_episode_id FROM episodes WHERE id = ?", (episode_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such episode")
+    if not row["sonarr_episode_id"]:
+        raise HTTPException(status_code=409, detail="Sonarr does not track this episode")
+    if not get_settings().sonarr_configured:
+        raise HTTPException(status_code=409, detail="Sonarr is not configured")
+
+    try:
+        command = await SonarrClient().search_episodes([int(row["sonarr_episode_id"])])
+    except UpstreamError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return JSONResponse({"ok": True, "command": command, "detail": "Sonarr is searching."})
 
 
 @app.get("/ready")

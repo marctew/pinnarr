@@ -156,6 +156,56 @@ class SonarrClient:
             )
         return episodes
 
+    async def queue(self) -> list[QueueItem]:
+        """What Sonarr is downloading right now.
+
+        This is what separates "arriving" from "stuck": without it, an
+        episode that aired and has not appeared looks identical whether a
+        download is 80% done or nothing has been found at all.
+        """
+        data = await self._get("/queue", pageSize=500, includeEpisode="true")
+        records = (data or {}).get("records", data) or []
+        items = []
+        for item in records:
+            if not isinstance(item, dict) or not item.get("episodeId"):
+                continue
+            items.append(
+                QueueItem(
+                    sonarr_episode_id=int(item["episodeId"]),
+                    sonarr_series_id=int(item.get("seriesId") or 0),
+                    status=str(item.get("trackedDownloadState") or item.get("status") or ""),
+                    percent=_percent(item),
+                    time_left=item.get("timeleft"),
+                    message=item.get("errorMessage") or None,
+                )
+            )
+        return items
+
+    async def history_for_episode(self, sonarr_episode_id: int, limit: int = 20) -> list[dict[str, Any]]:
+        """Recent grab/import/failure events for one episode."""
+        data = await self._get(
+            "/history", episodeId=sonarr_episode_id, pageSize=limit,
+            sortKey="date", sortDirection="descending",
+        )
+        records = (data or {}).get("records", data) or []
+        return [r for r in records if isinstance(r, dict)]
+
+    async def search_episodes(self, episode_ids: list[int]) -> int:
+        """Ask Sonarr to go looking. Returns the command id.
+
+        The one place Pinnarr writes to another service — see SPEC §1.
+        """
+        if not self.base or not self.api_key:
+            raise UpstreamError(self.service, "not configured")
+        payload = await request_json(
+            self.service,
+            "POST",
+            f"{self.base}/api/v3/command",
+            headers={"X-Api-Key": self.api_key},
+            json_body={"name": "EpisodeSearch", "episodeIds": episode_ids},
+        )
+        return int((payload or {}).get("id") or 0)
+
     async def episodes_for_series(self, sonarr_series_id: int) -> list[SonarrEpisode]:
         """Full episode list for one series — used to find the latest aired season."""
         data = await self._get("/episode", seriesId=sonarr_series_id)
@@ -175,3 +225,21 @@ class SonarrClient:
             )
             for item in data or []
         ]
+
+
+@dataclass
+class QueueItem:
+    sonarr_episode_id: int
+    sonarr_series_id: int
+    status: str
+    percent: float
+    time_left: str | None
+    message: str | None
+
+
+def _percent(item: dict[str, Any]) -> float:
+    size = float(item.get("size") or 0)
+    left = float(item.get("sizeleft") or 0)
+    if size <= 0:
+        return 0.0
+    return max(0.0, min(100.0, (size - left) / size * 100.0))

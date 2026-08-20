@@ -36,6 +36,7 @@ async def request_json(
     *,
     headers: dict[str, str] | None = None,
     params: dict[str, Any] | None = None,
+    json_body: Any | None = None,
     timeout: httpx.Timeout = DEFAULT_TIMEOUT,
 ) -> Any:
     """Make a request and return decoded JSON, retrying transient failures."""
@@ -45,7 +46,9 @@ async def request_json(
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                resp = await client.request(method, url, headers=hdrs, params=params)
+                resp = await client.request(
+                    method, url, headers=hdrs, params=params, json=json_body
+                )
 
             if resp.status_code in RETRY_STATUS and attempt < MAX_ATTEMPTS:
                 # Honour Retry-After when the server bothers to send one.

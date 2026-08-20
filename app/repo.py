@@ -681,10 +681,12 @@ def get_series(
 _EPISODE_SELECT = """
     -- Aliased: e.* already carries a `title` (the episode's), and an
     -- unaliased s.title is silently shadowed by it.
-    SELECT e.*, s.title AS series_title, s.id AS series_id, s.outlook, s.poster_url
+    SELECT e.*, s.title AS series_title, s.id AS series_id, s.outlook, s.poster_url,
+           q.percent AS dl_percent, q.status AS dl_status, q.time_left AS dl_time_left
     FROM episodes e
     JOIN series s ON s.id = e.series_id
     JOIN pins p ON p.series_id = s.id AND p.user_id = ?
+    LEFT JOIN download_queue q ON q.sonarr_episode_id = e.sonarr_episode_id
 """
 
 

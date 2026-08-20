@@ -20,6 +20,7 @@ AWAITING: Final = "awaiting"
 MISSING: Final = "missing"
 AVAILABLE: Final = "available"
 UNMONITORED: Final = "unmonitored"
+DOWNLOADING: Final = "downloading"
 
 #: How long after air time before absence stops being "any minute now" and
 #: starts being "something is wrong". Tunable per SPEC §17 if it grates.
@@ -32,6 +33,7 @@ LABELS: Final[dict[str, str]] = {
     MISSING: "not arrived",
     AVAILABLE: "in Plex",
     UNMONITORED: "not wanted",
+    DOWNLOADING: "downloading",
 }
 
 MARKS: Final[dict[str, str]] = {
@@ -41,6 +43,7 @@ MARKS: Final[dict[str, str]] = {
     MISSING: "✕",
     AVAILABLE: "●",
     UNMONITORED: "–",
+    DOWNLOADING: "↓",
 }
 
 
@@ -89,6 +92,9 @@ def episode_state(
         return AVAILABLE
     if not _field(row, "monitored", 1):
         return UNMONITORED
+    # Sonarr has it in hand. Red would be a lie and amber an understatement.
+    if _field(row, "dl_status") is not None:
+        return DOWNLOADING
     if air is None:
         return UPCOMING
 
@@ -134,4 +140,6 @@ def decorate(row: Any, *, now: datetime | None = None, tz: str = "Europe/London"
         "air_local": air.astimezone(ZoneInfo(tz)) if air else None,
         "code": f"S{row['season']:02d}E{row['episode']:02d}",
         "milestone": milestone(row),
+        "progress": _field(row, "dl_percent"),
+        "time_left": _field(row, "dl_time_left"),
     }

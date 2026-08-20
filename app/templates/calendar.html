@@ -15,7 +15,9 @@
     </span>
     <span class="time">{{ ep.air_local.strftime('%H:%M') if ep.air_local }}</span>
     <span class="code">{{ ep.code }}</span>
-    <span class="pill">{{ ep.mark }} {{ ep.label }}</span>
+    <span class="pill">{{ ep.mark }}
+      {%- if ep.state == "downloading" and ep.progress %} {{ ep.progress|round|int }}%
+      {%- else %} {{ ep.label }}{% endif %}</span>
   </li>
 {% endmacro %}
 
@@ -56,7 +58,39 @@
 
 {% if overdue %}
   <h2 class="section warn">⚠ Aired, not arrived</h2>
-  <ul class="eps flat">{% for ep in overdue %}{{ ep_row(ep) }}{% endfor %}</ul>
+  <ul class="eps flat">
+    {% for ep in overdue %}
+      <li class="ep state-{{ ep.state }}">
+        <a class="art" href="/series/{{ ep.series_id }}" tabindex="-1" aria-hidden="true">
+          <img src="/poster/{{ ep.series_id }}" alt="" loading="lazy" width="36" height="54">
+        </a>
+        <span class="who">
+          <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
+          {% if ep.title %}<span class="eptitle">{{ ep.title }}</span>{% endif %}
+          <span class="why" id="why-{{ ep.id }}"></span>
+        </span>
+        <span class="time">{{ ep.code }}</span>
+        <span class="fixit">
+          <button type="button" class="tiny" onclick="explain({{ ep.id }})">Why?</button>
+          <button type="button" class="tiny" onclick="research({{ ep.id }})">Search</button>
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <script>
+    async function ask(id, path, verb) {
+      const out = document.getElementById('why-' + id);
+      out.className = 'why pending';
+      out.textContent = verb;
+      const r = await fetch('/api/episodes/' + id + path, { method: 'POST' });
+      const data = await r.json().catch(() => ({}));
+      out.className = 'why' + (data.ok ? '' : ' bad');
+      out.textContent = data.detail || ('HTTP ' + r.status);
+    }
+    const explain = (id) => ask(id, '/why', 'Asking Sonarr\u2026');
+    const research = (id) => ask(id, '/search', 'Asking Sonarr to search\u2026');
+  </script>
 {% endif %}
 
 <h2 class="section">{{ month_heading }}</h2>
