@@ -325,26 +325,26 @@
   /* ── Ready to watch ── */
   /* Poster flush to the card edges and stretched to whatever height the
      episode list needs, rather than a fixed box floating in padding. */
+  /* The poster sits inside the padding rather than bleeding to the card
+     edge. Flush only works if it fills the height, and it stopped doing that
+     the moment it kept its proportions — leaving a hard edge and a strip of
+     mismatched background under it. */
   .ready {
-    display: grid; grid-template-columns: 68px 1fr; align-items: start;
-    margin-bottom: .6rem; overflow: hidden;
-    /* Enough for a 2:3 poster at this width, so the common one-episode card
-       shows the whole thing rather than a cropped band. */
-    min-height: 102px;
+    display: grid; grid-template-columns: 68px 1fr; gap: .9rem;
+    align-items: start; padding: .8rem; margin-bottom: .6rem;
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   }
   /* Natural proportions, pinned to the top and following the list down.
      Stretched to the card height, a 37-episode group cropped the poster to a
      vertical sliver of somebody's face. */
   .ready .art {
-    display: block; line-height: 0; background: var(--bg);
-    position: sticky; top: .75rem; align-self: start;
+    display: block; line-height: 0; position: sticky; top: .8rem; align-self: start;
   }
   .ready .art img {
     width: 68px; height: 102px; object-fit: cover; display: block;
-    border-bottom-right-radius: 6px;
+    border-radius: 6px; background: var(--bg);
   }
-  .ready .body { min-width: 0; padding: .75rem .9rem; }
+  .ready .body { min-width: 0; }
   .ready h2 {
     font-size: 15px; margin: 0 0 .35rem; display: flex; gap: .6rem;
     align-items: baseline; flex-wrap: wrap;
