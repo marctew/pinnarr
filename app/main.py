@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__, auth
@@ -22,7 +22,15 @@ from app.config import (
 )
 from app.db import migrate, session
 from app.jobs import build_scheduler
-from app.routes import accounts, admin, calendar, library, lists, series
+from app.routes import (
+    accounts,
+    admin,
+    calendar,
+    integrations,
+    library,
+    lists,
+    series,
+)
 from app.routes import webhook as webhook_routes
 from app.scheduling import stop_scheduler
 from app.web import STATIC_DIR, templates
@@ -85,7 +93,8 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-for module in (accounts, webhook_routes, admin, library, calendar, lists, series):
+for module in (accounts, webhook_routes, admin, library, calendar, lists, series,
+               integrations):
     app.include_router(module.router)
 
 
@@ -107,6 +116,22 @@ PUBLIC_PREFIXES = ("/static/",)
 ADMIN_PREFIXES = ("/settings", "/api/sync", "/api/backup")
 
 
+def _presented_key(request: Request) -> str | None:
+    """A key from either header. Bearer because that is what most clients
+    reach for; X-Api-Key because that is what the *arr stack taught everyone
+    to expect, and this sits beside Sonarr."""
+    header = request.headers.get("authorization") or ""
+    if header.lower().startswith("bearer "):
+        return header[7:].strip()
+    return request.headers.get("x-api-key")
+
+
+def _wants_json(request: Request) -> bool:
+    return request.url.path.startswith("/api/") or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+
+
 @app.middleware("http")
 async def authenticate(request: Request, call_next):
     """One gate in front of everything, rather than a decorator per route.
@@ -118,14 +143,26 @@ async def authenticate(request: Request, call_next):
     if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
         return await call_next(request)
 
+    key = _presented_key(request)
     with session() as conn:
         user = auth.user_for_token(conn, request.cookies.get(auth.COOKIE))
+        if user is None and key:
+            # Integrations have no browser to hold a cookie and no form to
+            # post, so they present a key instead. Same account, same role,
+            # same per-user data — only the way in differs.
+            user = auth.user_for_api_key(conn, key)
         if user is None:
             # Nobody has an account yet: send them to make the first admin
             # rather than to a login form no password can satisfy.
             first_run = auth.admin_count(conn) == 0
 
     if user is None:
+        if key or _wants_json(request):
+            # A machine gets an answer it can act on rather than a redirect
+            # to a login form it cannot fill in.
+            return JSONResponse(
+                {"detail": "invalid or missing API key"}, status_code=401
+            )
         if first_run:
             return RedirectResponse("/setup", status_code=303)
         nxt = quote(request.url.path + (f"?{request.url.query}" if request.url.query else ""))
@@ -133,6 +170,8 @@ async def authenticate(request: Request, call_next):
 
     request.state.user = user
     if path.startswith(ADMIN_PREFIXES) and user["role"] != auth.ADMIN:
+        if _wants_json(request):
+            return JSONResponse({"detail": "admin only"}, status_code=403)
         return templates.TemplateResponse(
             request, "forbidden.html", {"needed": "an admin"}, status_code=403
         )

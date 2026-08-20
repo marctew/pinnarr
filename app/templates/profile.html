@@ -55,6 +55,51 @@
   <div class="bar"><button type="submit" class="primary">Save</button></div>
 </form>
 
+<h2 class="section">API keys</h2>
+<p class="lede">For things that aren't a browser: a home-automation module, a
+  Stream Deck plugin, a shell script. A key acts as you — your pins, your
+  watch state, your role — so treat it like your password.</p>
+
+{% if new_key %}
+  <div class="newkey">
+    <p><strong>Copy this now.</strong> It is not shown again and cannot be recovered.</p>
+    <code class="key">{{ new_key }}</code>
+    <p class="hint">Send it as <code>X-Api-Key: {{ new_key[:8] }}…</code> or
+      <code>Authorization: Bearer {{ new_key[:8] }}…</code>.</p>
+  </div>
+{% endif %}
+
+{% if keys %}
+  <ul class="keys">
+    {% for k in keys %}
+      <li class="keyrow">
+        <span class="who">{{ k['name'] }}</span>
+        <code class="prefix">{{ k['prefix'] }}…</code>
+        <span class="hint">
+          added {{ k['created_at'][:10] }} ·
+          {% if k['last_used_at'] %}last used {{ k['last_used_at'][:16]|replace('T', ' ') }}
+          {%- else %}never used{% endif %}
+        </span>
+        <form method="post" action="/profile/keys/{{ k['id'] }}/revoke">
+          <button type="submit" class="tiny">Revoke</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">No keys yet.</p>
+{% endif %}
+
+<form method="post" action="/profile/keys" class="newkey-form">
+  <label>Name it
+    <input type="text" name="name" placeholder="Home Assistant" maxlength="60" required>
+  </label>
+  <button type="submit">Create key</button>
+</form>
+
+<p class="hint">The endpoints are listed at <a href="/api/docs">/api/docs</a>.
+  <code>/api/summary</code> is the one-call dashboard answer.</p>
+
 <script>
   async function testWatchlist() {
     const out = document.getElementById('watchlist-result');

@@ -50,6 +50,7 @@ def build_scheduler() -> AsyncIOScheduler:
     # Imported here so the @tracked decorators have run and populated REGISTRY.
     from app.jobs import (
         availability,
+        cast_sync,
         guides,
         housekeeping,
         notifications,
@@ -80,6 +81,7 @@ def build_scheduler() -> AsyncIOScheduler:
     nightly(2, 45, watch_state.sync_all_watch_state, "plex_watched_full")
     nightly(3, 15, guides.refresh_pinned_guides, "pinned_guides")
     nightly(3, 35, suggest.refresh_suggestions, "suggestions")
+    nightly(3, 45, cast_sync.sync_cast, "tmdb_cast")
     nightly(3, 40, notifications.notify_schedule_changes, "schedule_changes")
     nightly(4, 0, notifications.reconcile, "reconcile")
     nightly(4, 30, housekeeping.housekeeping, "housekeeping")

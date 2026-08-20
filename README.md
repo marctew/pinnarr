@@ -127,6 +127,39 @@ ruff check app tests
 uvicorn app.main:app --reload --port 8737
 ```
 
+## API
+
+For anything that isn't a browser — a home-automation module, a Stream Deck
+plugin, a shell script. Create a key under **Your account → API keys**; it is
+shown once and stored hashed.
+
+```bash
+curl -H "X-Api-Key: pnr_..." http://pinnarr.lan:8737/api/summary
+```
+
+`Authorization: Bearer pnr_...` works equally. A key acts as the account that
+made it — same pins, same watch state, same role — so a standard user's key
+cannot reach the admin routes.
+
+| Endpoint | Answers |
+|---|---|
+| `GET /api/summary` | Everything a dashboard needs, in one call |
+| `GET /api/schedule?days=7&back=1` | What's on, for your pins |
+| `GET /api/next` | The single next episode |
+| `GET /api/watching` | Shows you're partway through |
+| `GET /api/arrivals?hours=24` | What landed recently — the automation trigger |
+| `GET /api/downloads` | The queue, and what has stalled |
+| `GET /api/calendar` | The raw calendar feed |
+| `GET /healthz` | Liveness, config state and last job runs (no key needed) |
+
+`/api/summary` is deliberately not RESTful: a wall display redrawing every
+minute shouldn't make six requests to fill one screen, and every number in it
+comes from the same instant. It carries `healthy` and `failing_jobs` — not
+"is Pinnarr up", since you just reached it, but whether what it's telling you
+is still fresh.
+
+Full schemas at `/api/docs`.
+
 ## Roadmap
 
 Built:
@@ -145,6 +178,8 @@ Built:
 - [x] Per-episode watch state from Plex, with Tautulli filling in play times
 - [x] Ready to watch, gaps, retire and discover
 - [x] Backup and restore
+- [x] Cast cross-referencing against your own library
+- [x] API keys and a read API for integrations
 
 Not built:
 

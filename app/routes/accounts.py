@@ -107,11 +107,41 @@ def _set_cookie(response, token: str) -> None:
 
 
 @router.get("/profile")
-async def profile(request: Request, saved: str = "", error: str = ""):
+async def profile(request: Request, saved: str = "", error: str = "", new_key: str = ""):
+    with session() as conn:
+        keys = auth.api_keys(conn, int(request.state.user["id"]))
     return templates.TemplateResponse(
         request, "profile.html",
-        {"flash": error or ("Saved." if saved else ""), "flash_kind": "bad" if error else "ok"},
+        {
+            "flash": error or ("Saved." if saved else ""),
+            "flash_kind": "bad" if error else "ok",
+            "keys": keys,
+            # Shown once, on the redirect that created it, and never again.
+            "new_key": new_key,
+        },
     )
+
+
+@router.post("/profile/keys")
+async def create_key(request: Request) -> RedirectResponse:
+    """Mint an API key for something that is not a browser.
+
+    Redirect rather than JSON so the key survives exactly one page render
+    and then cannot be got at again — including by whoever walks up to the
+    machine next.
+    """
+    form = await request.form()
+    name = str(form.get("name", "")).strip()[:60]
+    with session() as conn:
+        key = auth.create_api_key(conn, int(request.state.user["id"]), name)
+    return RedirectResponse(f"/profile?new_key={quote(key)}", status_code=303)
+
+
+@router.post("/profile/keys/{key_id}/revoke")
+async def revoke_key(request: Request, key_id: int) -> RedirectResponse:
+    with session() as conn:
+        auth.revoke_api_key(conn, int(request.state.user["id"]), key_id)
+    return RedirectResponse("/profile?saved=1", status_code=303)
 
 
 @router.get("/notifications")

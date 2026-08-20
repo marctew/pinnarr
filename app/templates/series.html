@@ -96,6 +96,66 @@
   </p>
 {% endif %}
 
+{% if familiar %}
+  {# The line worth reading: not who is in it, but who you already know and
+     from where. Every other tool answers this with a filmography, most of
+     which you have never seen. #}
+  <h2 class="section">You've seen them before</h2>
+  <ul class="faces">
+    {% for item in familiar %}
+      <li class="face">
+        <a class="mug" href="/person/{{ item.person['tmdb_person_id'] }}" tabindex="-1" aria-hidden="true">
+          {% if item.person['profile_path'] %}
+            <img src="https://image.tmdb.org/t/p/w92{{ item.person['profile_path'] }}"
+                 alt="" loading="lazy" width="46" height="69">
+          {% else %}
+            <span class="noface">{{ item.person['name'][:1] }}</span>
+          {% endif %}
+        </a>
+        <span class="body">
+          <a class="show" href="/person/{{ item.person['tmdb_person_id'] }}">{{ item.person['name'] }}</a>
+          {% if item.person['character'] %}<span class="as">as {{ item.person['character'] }}</span>{% endif %}
+          <span class="from">
+            you've seen them in
+            {% for other in item.seen_in[:3] %}
+              <a href="/series/{{ other['id'] }}">{{ other['title'] }}</a>{{ ', ' if not loop.last }}
+            {% endfor %}
+            {%- if item.seen_in|length > 3 %} and {{ item.seen_in|length - 3 }} more{% endif %}
+          </span>
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+{% if cast %}
+  <details class="cast">
+    <summary>Full cast ({{ cast|length }})</summary>
+    <ul class="faces">
+      {% for member in cast %}
+        <li class="face">
+          <a class="mug" href="/person/{{ member['tmdb_person_id'] }}" tabindex="-1" aria-hidden="true">
+            {% if member['profile_path'] %}
+              <img src="https://image.tmdb.org/t/p/w92{{ member['profile_path'] }}"
+                   alt="" loading="lazy" width="46" height="69">
+            {% else %}
+              <span class="noface">{{ member['name'][:1] }}</span>
+            {% endif %}
+          </a>
+          <span class="body">
+            <a class="show" href="/person/{{ member['tmdb_person_id'] }}">{{ member['name'] }}</a>
+            {% if member['character'] %}<span class="as">{{ member['character'] }}</span>{% endif %}
+            <span class="from">
+              {%- if member['elsewhere'] %}in {{ member['elsewhere'] }} other thing{{ '' if member['elsewhere'] == 1 else 's' }} you own
+              {%- else %}nothing else of yours{% endif -%}
+            </span>
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  </details>
+{% endif %}
+
 <h2 class="section">
   Episodes
   {% if s['sonarr_id'] %}

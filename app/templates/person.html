@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ who['name'] }} · Pinnarr{% endblock %}
+{% block nav_library %}active{% endblock %}
+
+{% block content %}
+<p class="crumb"><a href="/library">‹ Library</a></p>
+<h1>{{ who['name'] }}</h1>
+<p class="lede">
+  {% if seen %}
+    You've watched <strong>{{ seen|length }}</strong> of the
+    {{ roles|length }} thing{{ '' if roles|length == 1 else 's' }} of yours they're in.
+  {% else %}
+    In {{ roles|length }} thing{{ '' if roles|length == 1 else 's' }} on your shelf,
+    none of which you've started.
+  {% endif %}
+</p>
+
+<div class="grid">
+  {% for r in roles %}
+    <article class="card">
+      <div class="thumb">
+        <a class="poster" href="/series/{{ r['id'] }}">
+          <img src="/poster/{{ r['id'] }}" alt="{{ r['title'] }}" loading="lazy"
+               width="200" height="300">
+        </a>
+      </div>
+      <h4><a href="/series/{{ r['id'] }}">{{ r['title'] }}</a></h4>
+      {% if r['character'] %}<p class="hint">as {{ r['character'] }}</p>{% endif %}
+      <p class="badge {{ 'seen' if r['seen'] }}">
+        {%- if r['seen'] %}{{ r['seen'] }} episode{{ '' if r['seen'] == 1 else 's' }} watched
+        {%- elif r['is_pinned'] %}pinned, not started
+        {%- else %}not watched{% endif -%}
+      </p>
+    </article>
+  {% endfor %}
+</div>
+{% endblock %}

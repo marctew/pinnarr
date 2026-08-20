@@ -42,6 +42,16 @@ class TmdbShow:
     last_episode_air_date: str | None
 
 
+@dataclass
+class CastMember:
+    tmdb_person_id: int
+    name: str
+    character: str | None
+    profile_path: str | None
+    episode_count: int
+    billing: int
+
+
 class TmdbClient:
     service = "tmdb"
 
@@ -93,6 +103,36 @@ class TmdbClient:
         for item in (data.get("results") or [])[:limit]:
             if isinstance(item, dict) and item.get("id"):
                 out.append({"tmdb_id": int(item["id"]), "title": item.get("name") or ""})
+        return out
+
+    async def credits(self, tmdb_id: int, limit: int = 25) -> list[CastMember]:
+        """The cast, ranked by how much of the show they are actually in.
+
+        aggregate_credits rather than credits: for television the latter
+        returns whoever was billed on the pilot, and a character who joined
+        in season three is missing entirely. This one totals across seasons,
+        which is also what makes episode_count meaningful — a one-scene guest
+        and the lead should not read the same.
+        """
+        data = await self._get(f"/tv/{tmdb_id}/aggregate_credits") or {}
+        out: list[CastMember] = []
+        for item in (data.get("cast") or [])[:limit]:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            roles = [r for r in (item.get("roles") or []) if isinstance(r, dict)]
+            character = ", ".join(
+                str(r.get("character")) for r in roles if r.get("character")
+            )
+            out.append(
+                CastMember(
+                    tmdb_person_id=int(item["id"]),
+                    name=str(item.get("name") or "").strip() or "unknown",
+                    character=character or None,
+                    profile_path=item.get("profile_path"),
+                    episode_count=int(item.get("total_episode_count") or 0),
+                    billing=int(item.get("order") if item.get("order") is not None else 999),
+                )
+            )
         return out
 
     async def tv_details(self, tmdb_id: int) -> TmdbShow:

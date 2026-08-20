@@ -1153,6 +1153,104 @@ def continue_watching(conn: sqlite3.Connection, user_id: int,
     )
 
 
+#: Fewer than this and they are a guest, not a face you would place.
+RECOGNISABLE_EPISODES = 3
+
+
+def cast_for(conn: sqlite3.Connection, series_id: int,
+             user_id: int) -> list[sqlite3.Row]:
+    """This show's cast, each with how much else of yours they are in.
+
+    `elsewhere` counts series you actually hold — not their whole filmography.
+    An IMDb page will tell you someone has eighty credits; the useful number
+    is the three that are on your shelf.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT c.tmdb_person_id, c.character, c.episode_count, c.billing,
+                   p.name, p.profile_path,
+                   (
+                       SELECT count(*) FROM series_cast o
+                       JOIN series s2 ON s2.id = o.series_id
+                       WHERE o.tmdb_person_id = c.tmdb_person_id
+                         AND o.series_id != c.series_id
+                   ) AS elsewhere,
+                   (
+                       SELECT count(*) FROM series_cast o
+                       JOIN pins p2 ON p2.series_id = o.series_id AND p2.user_id = :uid
+                       WHERE o.tmdb_person_id = c.tmdb_person_id
+                         AND o.series_id != c.series_id
+                   ) AS elsewhere_pinned
+            FROM series_cast c
+            JOIN people p ON p.tmdb_person_id = c.tmdb_person_id
+            WHERE c.series_id = :sid
+            ORDER BY c.billing, c.episode_count DESC
+            """,
+            {"sid": series_id, "uid": user_id},
+        )
+    )
+
+
+def person(conn: sqlite3.Connection, tmdb_person_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM people WHERE tmdb_person_id = ?", (tmdb_person_id,)
+    ).fetchone()
+
+
+def appearances(conn: sqlite3.Connection, tmdb_person_id: int,
+                user_id: int) -> list[sqlite3.Row]:
+    """Everything of yours this person is in, and whether you have seen it.
+
+    Ordered by what you have watched most of, so the answer to "where do I
+    know them from" comes first rather than alphabetically.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT s.id, s.title, s.year, s.outlook, s.poster_url,
+                   c.character, c.episode_count,
+                   EXISTS(
+                       SELECT 1 FROM pins p
+                       WHERE p.series_id = s.id AND p.user_id = :uid
+                   ) AS is_pinned,
+                   (
+                       SELECT count(*) FROM episodes e
+                       JOIN episode_watches w
+                           ON w.episode_id = e.id AND w.user_id = :uid
+                       WHERE e.series_id = s.id
+                   ) AS seen
+            FROM series_cast c
+            JOIN series s ON s.id = c.series_id
+            JOIN people p ON p.tmdb_person_id = c.tmdb_person_id
+            WHERE c.tmdb_person_id = :pid
+            ORDER BY seen DESC, is_pinned DESC, s.sort_title
+            """,
+            {"pid": tmdb_person_id, "uid": user_id},
+        )
+    )
+
+
+def familiar_faces(conn: sqlite3.Connection, series_id: int,
+                   user_id: int) -> list[dict]:
+    """The cast of this show you have demonstrably seen before.
+
+    The point of the whole feature, reduced to the one line worth reading:
+    not who is in it, but who you already know and from where.
+    """
+    out = []
+    for member in cast_for(conn, series_id, user_id):
+        if member["episode_count"] < RECOGNISABLE_EPISODES:
+            continue
+        seen_in = [
+            row for row in appearances(conn, int(member["tmdb_person_id"]), user_id)
+            if int(row["id"]) != series_id and int(row["seen"] or 0) > 0
+        ]
+        if seen_in:
+            out.append({"person": member, "seen_in": seen_in})
+    return out
+
+
 def at_risk(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     """Pins with something structurally wrong, and what it is.
 

@@ -169,6 +169,73 @@ def user_for_token(conn: sqlite3.Connection, token: str | None) -> sqlite3.Row |
     return row
 
 
+# ── API keys ─────────────────────────────────────
+
+#: Long enough that guessing is hopeless, prefixed so it is obvious what a
+#: leaked string is and where to go and revoke it.
+KEY_PREFIX: Final = "pnr_"
+#: How much of the key is shown back in the list. Enough to tell two apart,
+#: far too little to use.
+PREFIX_LEN: Final = 8
+
+
+def create_api_key(conn: sqlite3.Connection, user_id: int, name: str) -> str:
+    """Mint a key and return it once. It is not recoverable afterwards.
+
+    Hashed with the same scrypt parameters as a password, because that is
+    what it is: a bearer credential for someone's whole account.
+    """
+    key = KEY_PREFIX + secrets.token_urlsafe(32)
+    conn.execute(
+        "INSERT INTO api_keys (user_id, name, prefix, key_hash, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (user_id, name.strip() or "unnamed", key[:PREFIX_LEN],
+         hash_password(key), utcnow()),
+    )
+    return key
+
+
+def api_keys(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
+    return list(
+        conn.execute(
+            "SELECT id, name, prefix, created_at, last_used_at FROM api_keys "
+            "WHERE user_id = ? ORDER BY id DESC",
+            (user_id,),
+        )
+    )
+
+
+def revoke_api_key(conn: sqlite3.Connection, user_id: int, key_id: int) -> bool:
+    cur = conn.execute(
+        "DELETE FROM api_keys WHERE id = ? AND user_id = ?", (key_id, user_id)
+    )
+    return cur.rowcount > 0
+
+
+def user_for_api_key(conn: sqlite3.Connection, key: str | None) -> sqlite3.Row | None:
+    """Whose key is this?
+
+    Every candidate row with a matching prefix is verified, rather than
+    trusting the prefix to be unique — it is eight characters and collisions
+    are possible, if unlikely.
+    """
+    if not key or not key.startswith(KEY_PREFIX):
+        return None
+    rows = conn.execute(
+        "SELECT id, user_id, key_hash FROM api_keys WHERE prefix = ?",
+        (key[:PREFIX_LEN],),
+    ).fetchall()
+    for row in rows:
+        if verify_password(key, row["key_hash"]):
+            conn.execute(
+                "UPDATE api_keys SET last_used_at = ? WHERE id = ?", (utcnow(), row["id"])
+            )
+            return conn.execute(
+                "SELECT * FROM users WHERE id = ?", (row["user_id"],)
+            ).fetchone()
+    return None
+
+
 def purge_expired(conn: sqlite3.Connection) -> int:
     return conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (utcnow(),)).rowcount
 

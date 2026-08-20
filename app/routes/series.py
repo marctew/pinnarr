@@ -17,12 +17,16 @@ from app.db import session
 from app.episodes import decorate
 from app.links import externals, missing_links
 from app.repo import (
+    appearances,
+    cast_for,
     episodes_by_season,
+    familiar_faces,
     genres_for,
     get_series,
     latest_season,
     mark_episodes_synced,
     next_unwatched,
+    person,
     pin_preferences,
     season_progress,
     set_ratings,
@@ -105,6 +109,31 @@ async def _pull_ratings(
     return rated, f"{rated} episode(s) rated"
 
 
+@router.get("/person/{tmdb_person_id}")
+async def person_page(request: Request, tmdb_person_id: int):
+    """Everything of yours one person is in.
+
+    Not their filmography — the intersection of it with your shelf, which is
+    the only part that answers "where do I know them from".
+    """
+    viewer = int(request.state.user["id"])
+    with session() as conn:
+        who = person(conn, tmdb_person_id)
+        if who is None:
+            raise HTTPException(status_code=404, detail="nobody by that id here")
+        roles = appearances(conn, tmdb_person_id, viewer)
+
+    return templates.TemplateResponse(
+        request,
+        "person.html",
+        {
+            "who": who,
+            "roles": roles,
+            "seen": [r for r in roles if int(r["seen"] or 0) > 0],
+        },
+    )
+
+
 @router.get("/series/{series_id}")
 async def series_detail(request: Request, series_id: int):
     now, tz = now_local()
@@ -118,6 +147,8 @@ async def series_detail(request: Request, series_id: int):
         up_next = next_unwatched(conn, viewer, series_id)
         genres = genres_for(conn, series_id)
         prefs = pin_preferences(conn, viewer, series_id)
+        players = cast_for(conn, series_id, viewer)
+        familiar = familiar_faces(conn, series_id, viewer)
 
     return templates.TemplateResponse(
         request,
@@ -139,5 +170,7 @@ async def series_detail(request: Request, series_id: int):
             "up_next": decorate(up_next, now=now, tz=str(tz)) if up_next else None,
             "progress": progress,
             "prefs": prefs,
+            "cast": players,
+            "familiar": familiar,
         },
     )
