@@ -56,6 +56,7 @@ from app.repo import (
     discover_dated,
     episodes_by_season,
     facet_counts,
+    finished_pins,
     genres_for,
     get_series,
     is_pinned_by,
@@ -69,6 +70,7 @@ from app.repo import (
     pinned_episodes,
     query_series,
     ready_to_watch,
+    retire,
     section_titles,
     set_notify,
     set_pinned,
@@ -1086,6 +1088,34 @@ async def ready(request: Request):
             "days": READY_DAYS,
         },
     )
+
+
+@app.get("/retire")
+async def retire_page(request: Request, done: str = ""):
+    """Pins that can never produce another episode.
+
+    §10 makes this argument for dormant shows; it applies at least as
+    strongly to ones that genuinely ended. A pin that cannot produce another
+    episode is not a subscription, it is a souvenir.
+    """
+    user_id = int(request.state.user["id"])
+    with session() as conn:
+        candidates = finished_pins(conn, user_id)
+    return templates.TemplateResponse(
+        request, "retire.html", {"candidates": candidates, "flash": done}
+    )
+
+
+@app.post("/api/series/retire")
+async def retire_pins(request: Request) -> JSONResponse:
+    """Unpin everything the retire page offered, re-running the query rather
+    than trusting a list of ids from the browser."""
+    user_id = int(request.state.user["id"])
+    with session() as conn:
+        ids = [int(r["id"]) for r in finished_pins(conn, user_id)]
+        removed, batch = retire(conn, user_id, ids)
+        total = pinned_count(conn, user_id)
+    return JSONResponse({"retired": removed, "batch": batch, "pinned_total": total})
 
 
 @app.get("/discover")

@@ -98,6 +98,14 @@ def build_scheduler() -> AsyncIOScheduler:
         id="plex_availability", replace_existing=True, max_instances=1, coalesce=True,
     )
 
+    # Alongside the digest rather than daily: a suggestion is not urgent, and
+    # a daily one is an irritation.
+    scheduler.add_job(
+        notifications.notify_new_seasons,
+        CronTrigger(day_of_week="mon", hour=9, minute=0, timezone=settings.tz),
+        id="season_alerts", replace_existing=True, max_instances=1, coalesce=True,
+    )
+
     if settings.digest_enabled:
         try:
             scheduler.add_job(

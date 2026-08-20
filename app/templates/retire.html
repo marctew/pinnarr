@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Retire pins · Pinnarr{% endblock %}
+{% block nav_library %}active{% endblock %}
+{% block content %}
+<h1>Finished pins</h1>
+<p class="lede">Shows you follow that have ended or been cancelled, with
+  nothing left to air. A pin that can't produce another episode isn't a
+  subscription — it's a souvenir.</p>
+
+{% if flash %}<p class="flash ok">{{ flash }}</p>{% endif %}
+
+{% if not candidates %}
+  <p class="empty">Nothing to retire. Every pin you have could still deliver
+    something. <a href="/library?pinned=pinned">See your pins</a>.</p>
+{% else %}
+  <p class="actions">
+    <button type="button" class="primary" onclick="retireAll()">
+      Unpin all {{ candidates|length }}
+    </button>
+    <span class="hint">You can pin any of them again from the library.</span>
+  </p>
+  <p class="result" id="retire-result"></p>
+
+  <div class="grid">
+    {% for s in candidates %}
+      <article class="card">
+        <div class="thumb">
+          <a class="poster" href="/series/{{ s['id'] }}">
+            <img src="/poster/{{ s['id'] }}" alt="{{ s['title'] }}" loading="lazy"
+                 width="200" height="300">
+          </a>
+        </div>
+        <h4><a href="/series/{{ s['id'] }}">{{ s['title'] }}</a></h4>
+        <p class="badge outlook-{{ s['outlook'] }}">{{ outlook_badge(s['outlook']) }}</p>
+      </article>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<script>
+  async function retireAll() {
+    const total = {{ candidates|length }};
+    if (!confirm('Unpin ' + total + ' finished show' + (total === 1 ? '' : 's') + '?')) return;
+    // The server re-runs the query rather than trusting a list of ids.
+    const r = await fetch('/api/series/retire', { method: 'POST' });
+    const data = await r.json();
+    document.getElementById('retire-result').textContent = data.retired + ' unpinned.';
+    setTimeout(() => location.reload(), 700);
+  }
+</script>
+{% endblock %}

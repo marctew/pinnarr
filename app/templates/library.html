@@ -61,6 +61,7 @@
         </select>
       </label>
       <button type="button" onclick="bulkPin()" {{ 'disabled' if not total }}>Pin all shown</button>
+      <a class="tiny-link" href="/retire">Retire finished</a>
       <button type="button" onclick="bulkUndo()" id="undo" {{ '' if can_undo else 'hidden' }}>Undo</button>
     </div>
 

@@ -1,6 +1,6 @@
 # Pinnarr — Design Spec
 
-**v0.4 — 19 August 2026**
+**v0.5 — 20 August 2026**
 *Self-hosted release calendar for the shows you actually care about.*
 
 *Changes since v0.1: added season outlook (§10), faceted library filtering and bulk pin (§11), TMDB as a data source, resolved open question 4.*
@@ -202,7 +202,10 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `tautulli_history` | 03:20 nightly | Update `last_watched_at` per series |
 | `tmdb_status` | 03:30 nightly | Production status for pinned series; recompute `outlook` for all |
 | `plex_availability` | hourly | For pinned series only: confirm recent episodes are present in Plex |
+| `sonarr_queue` | every 5 min | What is downloading right now |
 | `notify_pending` | every minute | Push settled arrival batches, one per series |
+| `schedule_changes` | 03:40 nightly | Announce air dates that have moved |
+| `season_alerts` | Mon 09:00 | Nudge about unpinned shows that gained a date |
 | `reconcile` | 04:00 nightly | Catch anything the webhook missed; fire late notifications |
 | `housekeeping` | 04:30 nightly | Prune sync_log, expired sessions and stale posters |
 
@@ -312,6 +315,9 @@ POST  /settings                  Save the panel; reschedules if timing changed
 POST  /api/settings/test/{svc}   Connection test against saved settings
 GET   /library                   Poster grid; facets per §11 as query params
 GET   /ready                     Pinned episodes that have arrived, grouped
+GET   /retire                    Pins that can never produce another episode
+POST  /api/episodes/{id}/why     Ask Sonarr why this hasn't turned up
+POST  /api/episodes/{id}/search  Ask Sonarr to look again
 GET   /discover                  Unpinned series with something coming
 GET   /settings/backup           Download and restore (admin)
 GET   /api/backup                The three things that cannot be re-synced

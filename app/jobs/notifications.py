@@ -367,3 +367,77 @@ async def notify_schedule_changes() -> str:
         sent += 1
 
     return f"{sent} schedule change(s) announced" if sent else "no schedule changes"
+
+
+#: How far ahead to look for a newly dated season.
+SEASON_ALERT_DAYS = 90
+
+
+@tracked("season_alerts")
+async def notify_new_seasons() -> str:
+    """Nudge people about shows they own that have picked up a date.
+
+    Discover is a page you have to remember to visit. With 2000 series and a
+    dozen pins, the gap between "shows worth following" and "shows you have
+    thought to pin" is enormous, and closing it passively is worth more than
+    another view nobody opens.
+    """
+    now = datetime.now(UTC)
+    horizon = (now + timedelta(days=SEASON_ALERT_DAYS)).isoformat()
+
+    with session() as conn:
+        users = conn.execute(
+            "SELECT id, ntfy_topic FROM users "
+            "WHERE ntfy_topic IS NOT NULL AND ntfy_topic != ''"
+        ).fetchall()
+
+    if not users:
+        return "skipped: nobody has an ntfy topic"
+
+    sent = 0
+    for user in users:
+        with session() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.id, s.title, s.next_airing
+                FROM series s
+                WHERE s.next_airing IS NOT NULL
+                  AND s.next_airing > ? AND s.next_airing < ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM pins p WHERE p.series_id = s.id AND p.user_id = ?
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM season_alerts a
+                      WHERE a.user_id = ? AND a.series_id = s.id
+                        AND a.next_airing IS s.next_airing
+                  )
+                ORDER BY s.next_airing
+                LIMIT 12
+                """,
+                (now.isoformat(), horizon, user["id"], user["id"]),
+            ).fetchall()
+
+        if not rows:
+            continue
+
+        lines = [f"{r['title']} — {r['next_airing'][:10]}" for r in rows]
+        ok = await ntfy.send(
+            f"{len(rows)} show(s) in your library have dates",
+            "\n".join(lines),
+            tags="tv,eyes",
+            topic=user["ntfy_topic"],
+        )
+        if not ok:
+            continue
+
+        with session() as conn:
+            for row in rows:
+                conn.execute(
+                    "INSERT INTO season_alerts (user_id, series_id, next_airing, notified_at) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(user_id, series_id) DO UPDATE SET "
+                    "next_airing = excluded.next_airing, notified_at = excluded.notified_at",
+                    (user["id"], row["id"], row["next_airing"], utcnow()),
+                )
+        sent += 1
+
+    return f"{sent} user(s) nudged" if sent else "nothing new to suggest"

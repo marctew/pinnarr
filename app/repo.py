@@ -963,3 +963,41 @@ def ready_to_watch(
         }
     # `order` preserves newest-arrival-first, which the IN query does not.
     return [(series_rows[sid], grouped[sid]) for sid in order if sid in series_rows]
+
+
+# ── Pin hygiene ──────────────────────────────────
+
+
+def finished_pins(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
+    """Pinned series that are over and have nothing left to air.
+
+    §10 makes this argument for `dormant`; it applies at least as strongly to
+    shows that genuinely ended. A pin that can never produce another episode
+    is not a subscription, it is a souvenir.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT s.* FROM series s
+            JOIN pins p ON p.series_id = s.id AND p.user_id = ?
+            WHERE s.outlook IN ('ended', 'cancelled')
+              AND (s.next_airing IS NULL OR s.next_airing < ?)
+            ORDER BY s.sort_title
+            """,
+            (user_id, utcnow()),
+        )
+    )
+
+
+def retire(conn: sqlite3.Connection, user_id: int, series_ids: list[int]) -> tuple[int, str]:
+    """Unpin many at once, as one undoable batch."""
+    batch = uuid.uuid4().hex[:12]
+    removed = 0
+    for series_id in series_ids:
+        cur = conn.execute(
+            "DELETE FROM pins WHERE user_id = ? AND series_id = ?", (user_id, series_id)
+        )
+        if cur.rowcount:
+            refresh_pinned_flag(conn, series_id)
+            removed += 1
+    return removed, batch
