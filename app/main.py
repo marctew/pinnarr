@@ -1020,15 +1020,24 @@ async def ready(request: Request):
     since = (now - timedelta(days=READY_DAYS)).isoformat()
 
     with session() as conn:
-        grouped = ready_to_watch(conn, user_id, since)
+        # An air date in the future is not "ready", however present the file.
+        grouped = ready_to_watch(conn, user_id, since, now.isoformat())
 
     today = now.astimezone(tz).date()
 
     def dress(episode: Any) -> dict[str, Any]:
         row = decorate(episode, now=now, tz=str(tz))
-        arrived = parse_dt(episode["arrived_at"])
+        # Say which one it is. Claiming an episode "arrived" three days ago
+        # when all we know is that it aired then would be a small lie.
+        stamp = parse_dt(episode["arrived_at"])
+        verb = "arrived"
+        if stamp is None:
+            stamp = parse_dt(episode["air_date_utc"])
+            verb = "aired"
         row["arrived"] = (
-            labels.relative_day(arrived.astimezone(tz).date(), today) if arrived else ""
+            f"{verb} {labels.relative_day(stamp.astimezone(tz).date(), today)}"
+            if stamp
+            else ""
         )
         return row
 

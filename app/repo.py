@@ -879,7 +879,7 @@ READY_DAYS = 21
 
 
 def ready_to_watch(
-    conn: sqlite3.Connection, user_id: int, since: str
+    conn: sqlite3.Connection, user_id: int, since: str, until: str
 ) -> list[tuple[sqlite3.Row, list[sqlite3.Row]]]:
     """Pinned episodes that have arrived recently, grouped by series.
 
@@ -889,20 +889,27 @@ def ready_to_watch(
 
     Grouped by series because that is the unit of a viewing session — four
     episodes of one show is one decision, not four.
+
+    Recency falls back to the air date when we never watched the file appear.
+    arrived_at only exists for episodes Pinnarr saw arrive, so insisting on it
+    would hide everything already in Plex before it was installed — which is
+    most of a library, and exactly the thing you might want to watch.
     """
     rows = list(
         conn.execute(
             """
             SELECT e.*, s.id AS series_id, s.title AS series_title, s.poster_url,
-                   s.remote_poster, s.outlook
+                   s.remote_poster, s.outlook,
+                   COALESCE(e.arrived_at, e.air_date_utc) AS recency
             FROM episodes e
             JOIN series s ON s.id = e.series_id
             JOIN pins p ON p.series_id = s.id AND p.user_id = ?
             WHERE (e.has_file = 1 OR e.in_plex = 1)
-              AND e.arrived_at IS NOT NULL AND e.arrived_at >= ?
-            ORDER BY e.arrived_at DESC, e.season ASC, e.episode ASC
+              AND COALESCE(e.arrived_at, e.air_date_utc) >= ?
+              AND COALESCE(e.arrived_at, e.air_date_utc) <= ?
+            ORDER BY recency DESC, e.season ASC, e.episode ASC
             """,
-            (user_id, since),
+            (user_id, since, until),
         )
     )
 

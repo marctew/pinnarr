@@ -127,3 +127,79 @@ def test_arrival_is_described_in_plain_language(client, admin_token):
     with session() as conn:
         seed(conn, user_id, days_ago=1)
     assert "yesterday" in client.get("/ready").text
+
+
+# ── Recency without an arrival stamp ──
+
+
+def seed_no_stamp(conn, user_id, *, title="Street Cops", aired_days_ago=3, tvdb_id=None,
+                  in_plex=1):
+    """In Plex, but Pinnarr never watched the file appear — which is true of
+    everything that was already there before it was installed."""
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO series (title, sort_title, tvdb_id, pinned, created_at, updated_at) "
+        "VALUES (?, ?, ?, 1, ?, ?)",
+        (title, title.lower(), tvdb_id, now, now),
+    )
+    sid = int(cur.lastrowid)
+    aired = (datetime.now(UTC) - timedelta(days=aired_days_ago)).isoformat()
+    conn.execute(
+        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+        "has_file, in_plex, monitored, arrived_at, updated_at) "
+        "VALUES (?, 2, 4, 'Episode 4', ?, 1, ?, 1, NULL, ?)",
+        (sid, aired, in_plex, now),
+    )
+    conn.execute(
+        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+        (user_id, sid, now),
+    )
+    return sid
+
+
+def test_something_in_plex_that_aired_recently_counts(client, admin_token):
+    """The calendar shows these as in Plex; Ready must agree with it."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed_no_stamp(conn, user_id, aired_days_ago=3)
+    assert "Street Cops" in client.get("/ready").text
+
+
+def test_it_says_aired_rather_than_claiming_it_arrived(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed_no_stamp(conn, user_id, aired_days_ago=1)
+    body = client.get("/ready").text
+    assert "aired yesterday" in body
+    assert "arrived yesterday" not in body
+
+
+def test_a_real_arrival_stamp_still_wins(client, admin_token):
+    """A late download of an old episode is news; its air date is not."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = seed_no_stamp(conn, user_id, aired_days_ago=400)
+        conn.execute(
+            "UPDATE episodes SET arrived_at = ? WHERE series_id = ?",
+            ((datetime.now(UTC) - timedelta(days=1)).isoformat(), sid),
+        )
+    body = client.get("/ready").text
+    assert "Street Cops" in body
+    assert "arrived yesterday" in body
+
+
+def test_an_old_back_catalogue_stays_out(client, admin_token):
+    """Line of Duty: in Plex, no arrival stamp, aired years ago."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed_no_stamp(conn, user_id, title="Line of Duty", aired_days_ago=2000)
+    assert "Line of Duty" not in client.get("/ready").text
+
+
+def test_a_file_for_something_not_yet_aired_is_not_ready(client, admin_token):
+    """An early leak has a file and a future air date. It is not tonight's
+    viewing, and dating it in the future would sort it above everything."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed_no_stamp(conn, user_id, aired_days_ago=-3)
+    assert "Street Cops" not in client.get("/ready").text
