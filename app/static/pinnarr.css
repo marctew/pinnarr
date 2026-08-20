@@ -596,3 +596,47 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
   border: 1px solid var(--warn); color: var(--warn);
 }
 @media (max-width: 720px) { .risk { grid-template-columns: 1fr; } }
+
+/* ── Day detail under the month grid ───────────── */
+.cell.has { cursor: pointer; }
+.cell.has:hover { border-color: var(--accent); }
+.cell.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Cells without episodes still open — they answer "nothing on" — but they
+   should not look like the ones that have something. */
+.cell:not(.has) { cursor: default; }
+
+.day-panel { margin: .6rem 0 1.2rem; }
+.day-panel > .hint { margin: .4rem 0 0; }
+.day-detail { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.day-detail-head {
+  display: flex; align-items: center; gap: .5rem; margin: 0;
+  padding: .5rem .7rem; border-bottom: 1px solid var(--line);
+  font-size: 13px; font-weight: 600;
+}
+.day-detail-head .rel { font-weight: 400; color: var(--muted); font-size: 12px; }
+.day-detail-head button { margin-left: auto; }
+.day-detail .empty { margin: 0; padding: .8rem .7rem; font-size: 13px; }
+.deps { list-style: none; margin: 0; padding: 0; }
+.dep {
+  display: grid; grid-template-columns: 3.2rem 1fr; gap: .1rem .6rem;
+  padding: .5rem .7rem; border-bottom: 1px solid var(--line);
+}
+.dep:last-child { border-bottom: 0; }
+.dep .at {
+  font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px;
+  border-left: 3px solid var(--accent); padding-left: .45rem;
+}
+.dep.state-available .at { border-left-color: var(--ok); }
+.dep.state-missing .at { border-left-color: var(--bad); }
+.dep.state-awaiting .at { border-left-color: var(--warn); }
+.dep.seen .at { border-left-color: var(--line); }
+.dep .body { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.dep .show { font-weight: 600; text-decoration: none; }
+.dep .line { display: flex; flex-wrap: wrap; gap: .4rem; align-items: baseline; font-size: 12px; }
+.dep .code { font-variant-numeric: tabular-nums; color: var(--muted); }
+.dep .eptitle { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dep .span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.dep .mins { color: var(--muted); }
+.dep .pill { grid-column: 2; justify-self: start; margin-top: .25rem; }
+.dep.seen { opacity: .65; }

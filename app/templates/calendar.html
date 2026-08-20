@@ -34,6 +34,47 @@
   </li>
 {% endmacro %}
 
+{# The agenda row is five columns wide and assumes the main column. This is
+   the same information for a 340px sidebar: the time first, since that is
+   what you clicked a day to find out. #}
+{% macro detail_row(ep) %}
+  <li class="dep state-{{ ep.state }}{{ ' seen' if ep.watched }}">
+    <span class="at">{{ ep.air_local.strftime('%H:%M') if ep.air_local else '—' }}</span>
+    <span class="body">
+      <a class="show" href="/series/{{ ep.series_id }}">{{ ep.series_title }}</a>
+      <span class="line">
+        <span class="code">{{ ep.code }}</span>
+        {% if ep.title %}<span class="eptitle">{{ ep.title }}</span>{% endif %}
+      </span>
+      <span class="line">
+        {% if ep.air_local and ep.runtime %}
+          <span class="span">{{ ep.air_local.strftime('%H:%M') }}–{{ ep.ends_local.strftime('%H:%M') }}</span>
+          <span class="mins">{{ duration(ep.runtime) }}</span>
+        {% elif ep.runtime %}
+          <span class="mins">{{ duration(ep.runtime) }}</span>
+        {% endif %}
+        {% if ep.milestone %}<span class="milestone">{{ ep.milestone }}</span>{% endif %}
+      </span>
+    </span>
+    {% set watch_url = plex_episode(ep.plex_rating_key) %}
+    {% if ep.watched %}
+      {% if watch_url %}
+        <a class="pill watched" href="{{ watch_url }}" target="_blank"
+           rel="noopener noreferrer" title="{{ ep.label }} — open in Plex">✓ watched</a>
+      {% else %}
+        <span class="pill watched" title="{{ ep.label }}">✓ watched</span>
+      {% endif %}
+    {% elif watch_url and ep.state == "available" %}
+      <a class="pill" href="{{ watch_url }}" target="_blank"
+         rel="noopener noreferrer" title="Open in Plex">{{ ep.mark }} {{ ep.label }}</a>
+    {% else %}
+      <span class="pill">{{ ep.mark }}
+      {%- if ep.state == "downloading" and ep.progress %} {{ ep.progress|round|int }}%
+      {%- else %} {{ ep.label }}{% endif %}</span>
+    {% endif %}
+  </li>
+{% endmacro %}
+
 {% macro day_group(day, eps) %}
   <section class="day">
     <h3 class="day-head">
@@ -155,10 +196,18 @@
   <div class="month-grid">
     {% for week in weeks %}
       {% for cell in week %}
-        <div class="cell {{ 'dim' if not cell.in_month }} {{ 'today' if cell.is_today }}">
+        {% set cls = ['cell'] + (['dim'] if not cell.in_month else []) + (['today'] if cell.is_today else []) + (['has'] if cell.count else []) %}
+        <div class="{{ cls|join(' ') }}"
+             data-day="{{ cell.key }}" role="button" tabindex="0"
+             aria-label="{{ cell.date.strftime('%A %d %B') }}{% if cell.count %}, {{ cell.count }} episode{{ '' if cell.count == 1 else 's' }}{% endif %}"
+             onclick="openDay('{{ cell.key }}')"
+             onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDay('{{ cell.key }}'); }">
           <span class="num">{{ cell.date.day }}</span>
           {% for item in cell.names[:3] %}
+            {# stopPropagation so the show link still wins over opening the
+               day — both are useful and the smaller target is the specific one. #}
             <a class="cell-show state-{{ item.state }}" href="/series/{{ item.id }}"
+               onclick="event.stopPropagation()"
                title="{{ item.title }} {{ item.code }}">{{ item.title }}</a>
           {% endfor %}
           {% if cell.count > 3 %}<span class="more">+{{ cell.count - 3 }} more</span>{% endif %}
@@ -166,6 +215,27 @@
       {% endfor %}
     {% endfor %}
   </div>
+</div>
+
+<div class="day-panel" id="day-panel">
+  <p class="hint" id="day-hint">Click a day to see what's on it.</p>
+  {% for day, eps in day_detail %}
+    <section class="day-detail" id="day-{{ day.isoformat() }}" hidden>
+      <h3 class="day-detail-head">
+        {{ day.strftime('%A %d %B') }}
+        <span class="rel">{{ relative_day(day, today) }}</span>
+        <button type="button" class="tiny" onclick="closeDay()" aria-label="Close">×</button>
+      </h3>
+      <ul class="deps">{% for ep in eps %}{{ detail_row(ep) }}{% endfor %}</ul>
+    </section>
+  {% endfor %}
+  <section class="day-detail" id="day-empty" hidden>
+    <h3 class="day-detail-head">
+      <span id="day-empty-label"></span>
+      <button type="button" class="tiny" onclick="closeDay()" aria-label="Close">×</button>
+    </h3>
+    <p class="empty">Nothing from your pinned shows on this day.</p>
+  </section>
 </div>
 
 {% if announced %}
@@ -195,6 +265,41 @@
 {% endif %}
 
 <script>
+  // The panels are all rendered server-side and hidden, so opening a day is
+  // a class toggle rather than a fetch — and the rows come from the same
+  // macro as everything else, which is why they cannot drift out of step
+  // with the agenda above.
+  let openedDay = null;
+
+  function openDay(key) {
+    if (openedDay === key) { closeDay(); return; }
+    closeDay();
+    const cell = document.querySelector('.cell[data-day="' + key + '"]');
+    const panel = document.getElementById('day-' + key);
+    if (panel) {
+      panel.hidden = false;
+    } else {
+      // A day with nothing on it still deserves an answer.
+      document.getElementById('day-empty-label').textContent =
+        cell ? cell.getAttribute('aria-label') : key;
+      document.getElementById('day-empty').hidden = false;
+    }
+    if (cell) cell.classList.add('on');
+    document.getElementById('day-hint').hidden = true;
+    openedDay = key;
+  }
+
+  function closeDay() {
+    document.querySelectorAll('.day-detail').forEach(el => { el.hidden = true; });
+    document.querySelectorAll('.cell.on').forEach(el => el.classList.remove('on'));
+    document.getElementById('day-hint').hidden = false;
+    openedDay = null;
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && openedDay) closeDay();
+  });
+
   // The queue is polled every minute server-side; without this you would
   // still have to reload to watch a download move. Only the parts that can
   // change are swapped — the page keeps its layout and scroll position.

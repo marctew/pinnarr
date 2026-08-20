@@ -132,12 +132,19 @@ def decorate(row: Any, *, now: datetime | None = None, tz: str = "Europe/London"
     """A row as the templates want it: state, label and mark alongside."""
     state = episode_state(row, now=now, tz=tz)
     air = parse(row["air_date_utc"])
+    local = air.astimezone(ZoneInfo(tz)) if air else None
+    runtime = _field(row, "runtime")
     return {
         **dict(row),
         "state": state,
         "label": LABELS[state],
         "mark": MARKS[state],
-        "air_local": air.astimezone(ZoneInfo(tz)) if air else None,
+        "air_local": local,
+        # When it finishes, for anywhere that shows a slot rather than a
+        # start. Computed once here so no template does clock arithmetic.
+        "ends_local": (
+            local + timedelta(minutes=int(runtime)) if local and runtime else None
+        ),
         "code": f"S{row['season']:02d}E{row['episode']:02d}",
         "milestone": milestone(row),
         "watched": bool(_field(row, "watched_at")),

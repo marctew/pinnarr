@@ -95,6 +95,10 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
 
     agenda: dict[date, list[dict[str, Any]]] = defaultdict(list)
     by_month: dict[date, list[dict[str, Any]]] = defaultdict(list)
+    #: Every day the grid shows, including the greyed-out ends of the
+    #: neighbouring months — those cells carry episodes too, and a day you
+    #: can see but not open would be the odd one out.
+    by_day: dict[date, list[dict[str, Any]]] = defaultdict(list)
     marks: dict[date, int] = defaultdict(int)
     names: dict[date, list[dict[str, Any]]] = defaultdict(list)
     upcoming: list[dict[str, Any]] = []
@@ -118,6 +122,8 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
             upcoming.append(ep)
         if day.year == anchor.year and day.month == anchor.month:
             by_month[day].append(ep)
+        if grid_start <= day <= grid_end:
+            by_day[day].append(ep)
 
     weeks: list[list[dict[str, Any]]] = []
     cursor = grid_start
@@ -131,6 +137,7 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
                     "is_today": cursor == today,
                     "count": marks.get(cursor, 0),
                     "names": names.get(cursor, []),
+                    "key": cursor.isoformat(),
                 }
             )
             cursor += timedelta(days=1)
@@ -163,6 +170,10 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
         # What the dots on the grid actually are — without this the month view
         # tells you something is happening and refuses to say what.
         "month_episodes": month_episodes,
+        # Rendered once per day, hidden, and revealed on click. Reusing the
+        # same macro as the agenda is the point: a second copy of the row
+        # markup in JavaScript is a copy that drifts.
+        "day_detail": sorted(by_day.items()),
         "month_heading": month_heading,
         "month_empty": month_empty,
         "next_up": upcoming[:5],

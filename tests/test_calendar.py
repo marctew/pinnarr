@@ -204,8 +204,11 @@ def test_the_agenda_does_not_repeat_itself_in_the_month_list(client):
     with session() as conn:
         seed(conn, air_offset_days=3)
     body = client.get("/").text
-    # The grid cell's tooltip carries the code too, so count rendered rows.
-    assert body.count(">S02E07<") == 1
+    # Only the main column. The grid cell's tooltip carries the code, and so
+    # does the day-detail panel — which is meant to repeat it, since that is
+    # what clicking a day is for.
+    main = body.split('<aside class="cal-side">')[0]
+    assert main.count(">S02E07<") == 1
     assert "Nothing of yours has aired yet this month" in body
 
 
@@ -424,3 +427,79 @@ def test_the_json_feed_honours_the_setting_too(client):
 
     save_settings({"hide_watched": "false"})
     assert len(client.get("/api/calendar").json()["episodes"]) == 1
+
+
+# ── Clicking a day on the grid ──
+
+
+def test_a_day_with_episodes_gets_a_detail_panel(client):
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    day = (datetime.now(UTC) + timedelta(days=3)).date().isoformat()
+    body = client.get("/").text
+    assert f'id="day-{day}"' in body
+    assert f'data-day="{day}"' in body
+
+
+def test_the_panel_carries_the_air_time_and_runtime(client):
+    """What you clicked a day to find out."""
+    with session() as conn:
+        sid = seed(conn, air_offset_days=3)
+        conn.execute("UPDATE episodes SET runtime = 45 WHERE series_id = ?", (sid,))
+    body = client.get("/").text
+    day = (datetime.now(UTC) + timedelta(days=3)).date().isoformat()
+    panel = body.split(f'id="day-{day}"')[1].split("</section>")[0]
+    assert 'class="at"' in panel
+    assert "45m" in panel
+
+
+def test_every_cell_is_clickable_even_an_empty_one(client):
+    """A day with nothing on it still deserves an answer rather than a
+    button that does nothing when pressed."""
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    body = client.get("/").text
+    assert body.count('role="button"') >= 28
+    assert 'id="day-empty"' in body
+
+
+def test_cells_with_episodes_are_marked_as_such(client):
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    assert 'class="cell has"' in client.get("/").text
+
+
+def test_the_show_link_in_a_cell_still_wins_over_opening_the_day(client):
+    """Both are useful; the smaller target is the more specific one."""
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    body = client.get("/").text
+    assert "event.stopPropagation()" in body
+
+
+def test_days_outside_the_month_are_openable_too(client):
+    """The greyed-out ends of the grid carry episodes as well, and a day you
+    can see but not open would be the odd one out."""
+    with session() as conn:
+        seed(conn, air_offset_days=0)
+        # An episode in the neighbouring month, still on the visible grid.
+        sid = conn.execute("SELECT id FROM series LIMIT 1").fetchone()["id"]
+        make_episode(conn, int(sid), season=2, episode=8, title="Next month",
+                     air_date_utc=iso(days=32), has_file=0, in_plex=0)
+    body = client.get("/").text
+    far = (datetime.now(UTC) + timedelta(days=32)).date().isoformat()
+    # Only if that day actually falls on the rendered grid.
+    if f'data-day="{far}"' in body:
+        assert f'id="day-{far}"' in body
+
+
+def test_the_detail_rows_come_from_the_same_data_as_the_agenda(client):
+    """Rendered server-side from the same decorated episodes, so the panel
+    cannot drift out of step the way a second copy in JavaScript would."""
+    with session() as conn:
+        seed(conn, air_offset_days=-2, has_file=1)
+    body = client.get("/").text
+    day = (datetime.now(UTC) - timedelta(days=2)).date().isoformat()
+    panel = body.split(f'id="day-{day}"')[1].split("</section>")[0]
+    assert "Severance" in panel
+    assert "S02E07" in panel
