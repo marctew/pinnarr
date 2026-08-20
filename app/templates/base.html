@@ -409,6 +409,16 @@
   .heat .tick.r9, .heat .tick.r10 { background: #35d08a; }
   /* Per row, where it sits beside the episode it describes. The strip above
      the season was a picture of the shape without saying what anything was. */
+  .up-next {
+    display: flex; align-items: baseline; gap: .6rem; margin: 1.5rem 0 0;
+    padding: .6rem .8rem; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--accent);
+  }
+  .up-next .label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--accent);
+  }
+  .up-next .name { color: var(--muted); }
   /* Watched rows recede: the list is for finding what you have not seen. */
   .ep.seen .show, .ep.seen .who { opacity: .55; }
   .ep .pill.watched { color: var(--muted); border-color: var(--line); }

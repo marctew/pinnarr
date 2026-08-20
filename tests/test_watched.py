@@ -371,3 +371,81 @@ def test_another_users_viewing_does_not_mark_your_rows(db, account):
     c = TestClient(app)
     c.cookies.set(auth.COOKIE, admin_tok)
     assert "✓ watched" not in c.get(f"/series/{sid}").text
+
+
+# ── Partly watched ──
+
+
+def part_watched(conn, user_id, *, seen_through=6, total=10, season=3):
+    """A season you are partway through, which is the normal state of a show
+    you are actually following."""
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO series (title, sort_title, plex_rating_key, pinned, "
+        "created_at, updated_at) VALUES ('Slow Horses', 'slow horses', '7777', 1, ?, ?)",
+        (now, now),
+    )
+    sid = int(cur.lastrowid)
+    for number in range(1, total + 1):
+        conn.execute(
+            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+            "has_file, in_plex, monitored, updated_at) "
+            "VALUES (?, ?, ?, ?, '2024-09-22T20:00:00+00:00', 1, 1, 1, ?)",
+            (sid, season, number, f"Episode {number}", now),
+        )
+    conn.execute(
+        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+        (user_id, sid, now),
+    )
+    for number in range(1, seen_through + 1):
+        mark_watched(conn, user_id, "7777", season, number, now)
+    return sid
+
+
+def test_the_series_page_says_where_you_are_up_to(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = part_watched(conn, user_id)
+    body = client.get(f"/series/{sid}").text
+    assert "Up next" in body
+    assert "S03E07" in body
+
+
+def test_the_part_watched_season_is_the_one_left_open(client, admin_token):
+    """On a show you are midway through, the newest season is the least
+    useful one to expand."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = part_watched(conn, user_id, season=3)
+        # A later season you have not started at all.
+        conn.execute(
+            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+            "has_file, in_plex, monitored, updated_at) "
+            "VALUES (?, 4, 1, 'Later', '2026-04-19T20:00:00+00:00', 1, 1, 1, ?)",
+            (sid, utcnow()),
+        )
+    body = client.get(f"/series/{sid}").text
+    tag = '<details class="season" open>'
+    assert "Season 3" in body.split(tag)[1].split("</summary>")[0]
+
+
+def test_a_season_you_have_started_counts_watched_not_downloads(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = part_watched(conn, user_id)
+    assert "6/10 watched" in client.get(f"/series/{sid}").text
+
+
+def test_finishing_everything_leaves_no_up_next(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = part_watched(conn, user_id, seen_through=10)
+    assert "Up next" not in client.get(f"/series/{sid}").text
+
+
+def test_the_library_card_names_the_next_episode(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        part_watched(conn, user_id)
+    body = client.get("/library").text
+    assert "6/10 watched · S03E07" in body

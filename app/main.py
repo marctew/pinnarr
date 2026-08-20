@@ -67,6 +67,7 @@ from app.repo import (
     latest_season,
     mark_episodes_synced,
     matching_ids,
+    next_unwatched,
     overdue_episodes,
     pinned_by_outlook,
     pinned_count,
@@ -1347,6 +1348,7 @@ async def series_detail(request: Request, series_id: int):
         viewer = int(request.state.user["id"])
         seasons = episodes_by_season(conn, series_id, viewer)
         progress = season_progress(conn, series_id, viewer)
+        up_next = next_unwatched(conn, viewer, series_id)
         genres = genres_for(conn, series_id)
 
     return templates.TemplateResponse(
@@ -1361,7 +1363,12 @@ async def series_detail(request: Request, series_id: int):
                 (number, [decorate(e, now=now, tz=str(tz)) for e in eps])
                 for number, eps in seasons
             ],
-            "open_season": latest_season(seasons),
+            # Open where you left off, not simply the newest season: on a
+            # part-watched show the latest season is the least useful one.
+            "open_season": (
+                int(up_next["season"]) if up_next else latest_season(seasons)
+            ),
+            "up_next": decorate(up_next, now=now, tz=str(tz)) if up_next else None,
             "progress": progress,
         },
     )

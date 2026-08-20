@@ -95,7 +95,7 @@
             <p class="watched {{ 'done' if seen.seen == seen.have }}"
                title="{{ seen.seen }} of {{ seen.have }} episodes you hold, watched by you">
               {%- if seen.seen == seen.have %}✓ watched
-              {%- elif seen.seen %}{{ seen.seen }}/{{ seen.have }} watched
+              {%- elif seen.seen %}{{ seen.seen }}/{{ seen.have }} watched · {{ seen.next or '' }}
               {%- else %}unwatched{% endif -%}
             </p>
           {% endif %}

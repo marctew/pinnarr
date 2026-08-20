@@ -51,6 +51,15 @@
   </div>
 </div>
 
+{% if up_next %}
+  <p class="up-next">
+    <span class="label">Up next</span>
+    <strong>{{ up_next.code }}</strong>
+    <span class="name">{{ up_next.title or '—' }}</span>
+    {% if up_next.rating %}<span class="score r{{ up_next.rating|round|int }}">{{ '%.1f'|format(up_next.rating) }}</span>{% endif %}
+  </p>
+{% endif %}
+
 <h2 class="section">
   Episodes
   {% if s['sonarr_id'] %}

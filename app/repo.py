@@ -916,6 +916,28 @@ def episodes_by_season(
     return sorted(seasons.items(), key=lambda kv: (kv[0] == 0, kv[0]))
 
 
+def next_unwatched(
+    conn: sqlite3.Connection, user_id: int, series_id: int
+) -> sqlite3.Row | None:
+    """The first episode this user holds and has not seen.
+
+    "Where am I up to" is the question a partly-watched series raises, and
+    counting backwards from a total is a poor way to answer it.
+    """
+    return conn.execute(
+        """
+        SELECT e.* FROM episodes e
+        LEFT JOIN episode_watches w ON w.episode_id = e.id AND w.user_id = ?
+        WHERE e.series_id = ? AND e.season > 0
+          AND (e.has_file = 1 OR e.in_plex = 1)
+          AND w.watched_at IS NULL
+        ORDER BY e.season ASC, e.episode ASC
+        LIMIT 1
+        """,
+        (user_id, series_id),
+    ).fetchone()
+
+
 def latest_season(seasons: list[tuple[int, Any]]) -> int | None:
     """The season worth expanding: the newest real one, specials aside."""
     numbers = [n for n, _ in seasons if n != 0]
@@ -1247,7 +1269,26 @@ def watch_progress(conn: sqlite3.Connection, user_id: int) -> dict[int, dict[str
         """,
         (user_id,),
     )
-    return {
+    progress = {
         int(r["series_id"]): {"have": int(r["have"]), "seen": int(r["seen"] or 0)}
         for r in rows
     }
+
+    # Where you are, not just how far — the useful thing about a part-watched
+    # show is which episode is next, and one query answers it for the page.
+    for row in conn.execute(
+        """
+        SELECT e.series_id, MIN(e.season * 1000 + e.episode) AS mark,
+               e.season, e.episode
+        FROM episodes e
+        LEFT JOIN episode_watches w ON w.episode_id = e.id AND w.user_id = ?
+        WHERE e.season > 0 AND (e.has_file = 1 OR e.in_plex = 1)
+          AND w.watched_at IS NULL
+        GROUP BY e.series_id
+        """,
+        (user_id,),
+    ):
+        entry = progress.get(int(row["series_id"]))
+        if entry is not None:
+            entry["next"] = f"S{int(row['season']):02d}E{int(row['episode']):02d}"
+    return progress
