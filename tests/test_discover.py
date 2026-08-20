@@ -189,3 +189,42 @@ def test_specials_sort_last_rather_than_first(client):
             )
     body = client.get(f"/series/{sid}").text
     assert body.index("Season 1") < body.index("Specials")
+
+
+# ── Collapsible sections ──
+
+
+def test_sections_are_collapsible(client):
+    with session() as conn:
+        add(conn, "Silo", days=3)
+    body = client.get("/discover").text
+    assert '<details class="pane"' in body
+    assert 'data-pane="week"' in body
+
+
+def test_the_soonest_section_is_open_and_the_rest_are_not(client):
+    """Four grids on one page; scrolling past the ones you are not using is
+    not browsing."""
+    with session() as conn:
+        add(conn, "Soon", days=3)
+        add(conn, "Later", days=40)
+    body = client.get("/discover").text
+    week = body.split('data-pane="week"')[1].split(">")[0]
+    later = body.split('data-pane="later"')[1].split(">")[0]
+    assert "open" in week
+    assert "open" not in later
+
+
+def test_each_section_shows_how_much_it_hides(client):
+    with session() as conn:
+        add(conn, "One", days=3)
+        add(conn, "Two", days=3)
+    body = client.get("/discover").text
+    assert '<span class="count">2</span>' in body
+
+
+def test_an_empty_section_is_not_rendered_at_all(client):
+    with session() as conn:
+        add(conn, "Silo", days=3)
+    body = client.get("/discover").text
+    assert 'data-pane="announced"' not in body

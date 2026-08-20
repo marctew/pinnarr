@@ -401,6 +401,27 @@
     text-transform: none; letter-spacing: 0; font-weight: 500;
   }
   .card.just-pinned { opacity: .55; }
+  /* Collapsible sections. Discover can run to four grids, and scrolling
+     past the ones you are not using is not browsing. */
+  .pane { border-top: 1px solid var(--line); margin-top: 1.25rem; }
+  .pane > summary {
+    cursor: pointer; list-style: none; padding: .85rem 0 .6rem;
+    display: flex; align-items: center; gap: .6rem;
+    font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600;
+  }
+  .pane > summary::-webkit-details-marker { display: none; }
+  .pane > summary::before {
+    content: '▸'; font-size: 11px; letter-spacing: 0;
+    transition: transform .12s; display: inline-block;
+  }
+  .pane[open] > summary::before { transform: rotate(90deg); }
+  .pane > summary:hover { color: var(--ink); }
+  .pane > summary .count {
+    margin-left: auto; letter-spacing: 0; text-transform: none;
+    font-weight: 400; font-size: 12.5px;
+  }
+  .pane .grid { margin-bottom: 1.25rem; }
   .dormant summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 1.5rem; }
   /* ── Series detail ── */
   .crumb { margin: 0 0 1rem; font-size: 13px; }

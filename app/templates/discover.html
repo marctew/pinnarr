@@ -35,36 +35,63 @@
     <a href="/settings/jobs">check the jobs</a>.</p>
 {% endif %}
 
-{% if this_week %}
-  <h2 class="section">Airing in the next 7 days</h2>
-  <div class="grid">{% for s in this_week %}{{ card(s) }}{% endfor %}</div>
-{% endif %}
+{% macro pane(key, title, items, open=False) %}
+  {% if items %}
+    <details class="pane" data-pane="{{ key }}" {{ 'open' if open }}>
+      <summary>{{ title }}<span class="count">{{ items|length }}</span></summary>
+      {{ caller() if caller else '' }}
+      <div class="grid">{% for s in items %}{{ card(s) }}{% endfor %}</div>
+    </details>
+  {% endif %}
+{% endmacro %}
 
-{% if later %}
-  <h2 class="section">Dated, further out</h2>
-  <div class="grid">{% for s in later %}{{ card(s) }}{% endfor %}</div>
-{% endif %}
+{{ pane('week', 'Airing in the next 7 days', this_week, open=True) }}
+{{ pane('later', 'Dated, further out', later) }}
 
-{% if suggestions %}
-  <h2 class="section">Because of what you follow</h2>
+{% call pane('suggested', 'Because of what you follow', suggestions) %}
   <p class="hint">Already in your library, unpinned, and TMDB thinks they
     resemble your pins. Discover's other sections are about what's coming;
     this one is about what you've forgotten you own.</p>
-  <div class="grid">
-    {% for s in suggestions %}
-      {{ card(s) }}
-    {% endfor %}
-  </div>
-{% endif %}
+{% endcall %}
 
-{% if announced %}
-  <h2 class="section">Announced or filming, no date yet</h2>
+{% call pane('announced', 'Announced or filming, no date yet', announced) %}
   <p class="hint">Metadata says a new season is coming but nobody has scheduled
     it. Pin now and it lands on your calendar the moment it gets a date.</p>
-  <div class="grid">{% for s in announced %}{{ card(s) }}{% endfor %}</div>
-{% endif %}
+{% endcall %}
 
 <script>
+  // Which panes you left open, remembered locally. No round trip and no
+  // schema for a preference that only matters to this browser.
+  const PANES = 'pinnarr.discover.panes';
+
+  function restorePanes() {
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem(PANES) || '{}');
+    } catch (err) {
+      return;
+    }
+    for (const el of document.querySelectorAll('.pane')) {
+      const key = el.dataset.pane;
+      if (key in saved) el.open = saved[key];
+    }
+  }
+
+  function rememberPanes() {
+    const state = {};
+    for (const el of document.querySelectorAll('.pane')) state[el.dataset.pane] = el.open;
+    try {
+      localStorage.setItem(PANES, JSON.stringify(state));
+    } catch (err) {
+      // Private browsing, quota, whatever — the page still works.
+    }
+  }
+
+  restorePanes();
+  for (const el of document.querySelectorAll('.pane')) {
+    el.addEventListener('toggle', rememberPanes);
+  }
+
   async function togglePin(id) {
     const card = document.getElementById('card-' + id);
     const pinned = card.classList.contains('is-pinned');
