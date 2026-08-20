@@ -118,6 +118,21 @@
   </fieldset>
 
   <fieldset>
+    <legend><h2>Calendar</h2></legend>
+    <label class="check">
+      <input type="hidden" name="show_unmonitored" value="false">
+      <input type="checkbox" name="show_unmonitored" value="true"
+             {{ 'checked' if s.show_unmonitored }}>
+      Show episodes Sonarr isn't monitoring
+    </label>
+    <p class="hint">Specials you never wanted and seasons you skipped still have
+      air dates, so Sonarr keeps rows for them. Off by default — they are
+      broadcasts you have already decided against. They never appear under
+      "aired, not arrived" either way, since an episode nobody is chasing was
+      never going to turn up.</p>
+  </fieldset>
+
+  <fieldset>
     <legend><h2>Season outlook</h2></legend>
     <div class="row">
       <label>Hiatus threshold (months)

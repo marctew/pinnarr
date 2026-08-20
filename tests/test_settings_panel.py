@@ -109,3 +109,34 @@ def test_testing_an_unknown_service_is_not_an_error(client):
     body = client.post("/api/settings/test/nope").json()
     assert body["ok"] is False
     assert "Unknown service" in body["message"]
+
+
+def test_every_setting_has_a_control_on_the_page(client):
+    """A settings field with no control is invisible and unreachable. This
+    caught show_unmonitored shipping without its checkbox."""
+    from app.config import SECRET_FIELDS, Settings
+
+    body = client.get("/settings").text
+    # Radarr is v1.5 and deliberately not on the form yet.
+    skip = {f for f in Settings.model_fields if f.startswith("radarr_")}
+    for field in Settings.model_fields:
+        if field in skip or field in SECRET_FIELDS:
+            continue
+        assert f'name="{field}"' in body, f"{field} has no control on /settings"
+
+
+def test_the_unmonitored_toggle_is_on_the_page(client):
+    body = client.get("/settings").text
+    assert 'name="show_unmonitored"' in body
+    assert "Show episodes Sonarr isn't monitoring" in body
+
+
+def test_the_unmonitored_toggle_round_trips_through_the_form(client):
+    from app.config import get_settings
+
+    assert get_settings().show_unmonitored is False
+    client.post("/settings", data={"show_unmonitored": ["false", "true"]})
+    assert get_settings().show_unmonitored is True
+
+    client.post("/settings", data={"show_unmonitored": "false"})
+    assert get_settings().show_unmonitored is False
