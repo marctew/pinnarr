@@ -27,6 +27,7 @@ from app import webhook as hooks
 from app.clients import watchlist as watchlist_client
 from app.clients.http import UpstreamError
 from app.clients.sonarr import SonarrClient
+from app.clients.tmdb import TmdbClient
 from app.config import (
     SCHEDULING_FIELDS,
     SECRET_FIELDS,
@@ -70,6 +71,7 @@ from app.repo import (
     pinned_by_outlook,
     pinned_count,
     pinned_episodes,
+    plex_shortfall,
     query_series,
     ready_to_watch,
     retire,
@@ -77,6 +79,8 @@ from app.repo import (
     section_titles,
     set_notify,
     set_pinned,
+    set_ratings,
+    suggested,
     undo_bulk_pin,
     upsert_episode,
 )
@@ -989,6 +993,43 @@ async def calendar(request: Request, month: str | None = None):
     return templates.TemplateResponse(request, "calendar.html", _calendar_context(month))
 
 
+@app.get("/api/calendar/live")
+async def calendar_live(request: Request) -> JSONResponse:
+    """Current state of everything on the user's calendar window.
+
+    Small enough to poll: the page holds the layout and only swaps the parts
+    that can change while you are looking at it.
+    """
+    user_id = int(request.state.user["id"])
+    now, tz = _now_local()
+    today = now.astimezone(tz).date()
+    settings = get_settings()
+
+    with session() as conn:
+        rows = pinned_episodes(
+            conn,
+            user_id,
+            (today - timedelta(days=OVERDUE_DAYS)).isoformat(),
+            (today + timedelta(days=LOOKAHEAD_DAYS)).isoformat(),
+            include_unmonitored=settings.show_unmonitored,
+            include_specials=settings.show_specials,
+        )
+
+    return JSONResponse(
+        {
+            "episodes": {
+                str(r["id"]): {
+                    "state": (d := decorate(r, now=now, tz=str(tz)))["state"],
+                    "label": d["label"],
+                    "mark": d["mark"],
+                    "progress": d["progress"],
+                }
+                for r in rows
+            }
+        }
+    )
+
+
 @app.get("/api/calendar")
 async def calendar_json(
     request: Request, start: str | None = None, end: str | None = None
@@ -1133,6 +1174,7 @@ async def gaps_page(request: Request):
     now, tz = _now_local()
     with session() as conn:
         grouped = gaps(conn, user_id)
+        shortfall = plex_shortfall(conn, user_id)
         pinned_total = pinned_count(conn, user_id)
 
     return templates.TemplateResponse(
@@ -1144,6 +1186,7 @@ async def gaps_page(request: Request):
                 for series, episodes in grouped
             ],
             "pinned_total": pinned_total,
+            "shortfall": shortfall,
         },
     )
 
@@ -1193,6 +1236,7 @@ async def discover(request: Request):
         later = discover_dated(conn, user_id, now=soon)
         announced = discover_announced(conn, user_id)
         counts = discover_counts(conn, user_id, now.isoformat())
+        suggestions = suggested(conn, user_id)
         sections = section_titles(conn)
 
     return templates.TemplateResponse(
@@ -1202,6 +1246,7 @@ async def discover(request: Request):
             "this_week": this_week,
             "later": later,
             "announced": announced,
+            "suggestions": suggestions,
             "counts": counts,
             "sections": sections,
             "tz": str(tz),
@@ -1238,7 +1283,29 @@ async def refresh_episodes(request: Request, series_id: int) -> JSONResponse:
             upsert_episode(conn, series_id, episode)
         mark_episodes_synced(conn, series_id)
 
-    return JSONResponse({"id": series_id, "episodes": len(episodes)})
+    rated = await _pull_ratings(series_id, row["tmdb_id"], {e.season for e in episodes})
+    return JSONResponse({"id": series_id, "episodes": len(episodes), "rated": rated})
+
+
+async def _pull_ratings(series_id: int, tmdb_id: int | None, seasons: set[int]) -> int:
+    """Episode scores from TMDB, alongside the Sonarr refresh.
+
+    Cosmetic, so a failure is swallowed rather than failing the refresh that
+    actually matters.
+    """
+    if not tmdb_id or not get_settings().tmdb_configured:
+        return 0
+    client = TmdbClient()
+    rated = 0
+    for season in sorted(s for s in seasons if s > 0):
+        try:
+            scores = await client.season_ratings(int(tmdb_id), season)
+        except Exception as exc:  # noqa: BLE001 — ratings never break a sync
+            log.warning("ratings failed for series %s season %s: %s", series_id, season, exc)
+            continue
+        with session() as conn:
+            rated += set_ratings(conn, series_id, season, scores)
+    return rated
 
 
 @app.get("/series/{series_id}")

@@ -45,6 +45,18 @@
   <div class="grid">{% for s in later %}{{ card(s) }}{% endfor %}</div>
 {% endif %}
 
+{% if suggestions %}
+  <h2 class="section">Because of what you follow</h2>
+  <p class="hint">Already in your library, unpinned, and TMDB thinks they
+    resemble your pins. Discover's other sections are about what's coming;
+    this one is about what you've forgotten you own.</p>
+  <div class="grid">
+    {% for s in suggestions %}
+      {{ card(s) }}
+    {% endfor %}
+  </div>
+{% endif %}
+
 {% if announced %}
   <h2 class="section">Announced or filming, no date yet</h2>
   <p class="hint">Metadata says a new season is coming but nobody has scheduled

@@ -1046,6 +1046,84 @@ def season_progress(conn: sqlite3.Connection, series_id: int) -> dict[int, dict[
     }
 
 
+def set_ratings(conn: sqlite3.Connection, series_id: int, season: int,
+                ratings: dict[int, float]) -> int:
+    updated = 0
+    for episode, score in ratings.items():
+        updated += conn.execute(
+            "UPDATE episodes SET rating = ? WHERE series_id = ? AND season = ? AND episode = ?",
+            (score, series_id, season, episode),
+        ).rowcount
+    return updated
+
+
+def plex_shortfall(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
+    """Pinned series where Sonarr holds more episodes than Plex shows.
+
+    Sonarr having a file that Plex has not indexed means a naming problem, a
+    failed scan, or a file Plex cannot read. Nothing else notices, and it is
+    invisible until you go looking for an episode Sonarr insists is there.
+
+    Only meaningful for series the availability job has actually checked,
+    which is why it is scoped to pins with a Plex key.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT s.id, s.title, s.poster_url,
+                   sum(CASE WHEN e.has_file = 1 THEN 1 ELSE 0 END) AS have_sonarr,
+                   sum(CASE WHEN e.in_plex = 1 THEN 1 ELSE 0 END) AS have_plex
+            FROM series s
+            JOIN pins p ON p.series_id = s.id AND p.user_id = ?
+            JOIN episodes e ON e.series_id = s.id
+            WHERE s.plex_rating_key IS NOT NULL AND e.season > 0
+            GROUP BY s.id
+            HAVING have_sonarr > have_plex
+            ORDER BY (have_sonarr - have_plex) DESC, s.sort_title
+            """,
+            (user_id,),
+        )
+    )
+
+
+def store_recommendations(conn: sqlite3.Connection, series_id: int,
+                          items: list[dict[str, Any]]) -> None:
+    conn.execute("DELETE FROM recommendations WHERE source_series_id = ?", (series_id,))
+    for item in items:
+        conn.execute(
+            "INSERT INTO recommendations (source_series_id, tmdb_id, title, updated_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+            (series_id, item["tmdb_id"], item.get("title"), utcnow()),
+        )
+
+
+def suggested(conn: sqlite3.Connection, user_id: int, limit: int = 30) -> list[sqlite3.Row]:
+    """Shows already in the library that resemble what this user pins.
+
+    Discover answers "what is coming". This answers "what have I forgotten I
+    own", which at two thousand series is the larger question.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT s.*, count(*) AS votes,
+                   group_concat(src.title, ', ') AS because
+            FROM recommendations r
+            JOIN series src ON src.id = r.source_series_id
+            JOIN pins mine ON mine.series_id = src.id AND mine.user_id = ?
+            JOIN series s ON s.tmdb_id = r.tmdb_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pins p WHERE p.series_id = s.id AND p.user_id = ?
+            )
+            GROUP BY s.id
+            ORDER BY votes DESC, s.last_watched_at DESC, s.sort_title
+            LIMIT ?
+            """,
+            (user_id, user_id, limit),
+        )
+    )
+
+
 # ── Gaps ─────────────────────────────────────────
 
 

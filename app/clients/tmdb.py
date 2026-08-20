@@ -7,6 +7,7 @@ TMDB distinguishes them and exposes in_production.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -65,6 +66,34 @@ class TmdbClient:
         data = await self._get(f"/find/{tvdb_id}", external_source="tvdb_id")
         results = (data or {}).get("tv_results") or []
         return int(results[0]["id"]) if results else None
+
+    async def season_ratings(self, tmdb_id: int, season: int) -> dict[int, float]:
+        """Episode number → vote average, for one season.
+
+        Ratings are cosmetic, so a season TMDB has never heard of is an empty
+        result rather than a problem.
+        """
+        data = await self._get(f"/tv/{tmdb_id}/season/{season}") or {}
+        out: dict[int, float] = {}
+        for item in data.get("episodes") or []:
+            if not isinstance(item, dict):
+                continue
+            number = item.get("episode_number")
+            score = item.get("vote_average")
+            if number is None or not score:
+                continue
+            with contextlib.suppress(TypeError, ValueError):
+                out[int(number)] = float(score)
+        return out
+
+    async def recommendations(self, tmdb_id: int, limit: int = 20) -> list[dict[str, Any]]:
+        """Shows TMDB thinks resemble this one."""
+        data = await self._get(f"/tv/{tmdb_id}/recommendations") or {}
+        out = []
+        for item in (data.get("results") or [])[:limit]:
+            if isinstance(item, dict) and item.get("id"):
+                out.append({"tmdb_id": int(item["id"]), "title": item.get("name") or ""})
+        return out
 
     async def tv_details(self, tmdb_id: int) -> TmdbShow:
         data = await self._get(f"/tv/{tmdb_id}") or {}

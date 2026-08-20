@@ -4,7 +4,7 @@
 {% block main_class %}wide{% endblock %}
 
 {% macro ep_row(ep) %}
-  <li class="ep state-{{ ep.state }}">
+  <li class="ep state-{{ ep.state }}" data-episode="{{ ep.id }}">
     <a class="art" href="/series/{{ ep.series_id }}" tabindex="-1" aria-hidden="true">
       <img src="/poster/{{ ep.series_id }}" alt="" loading="lazy" width="36" height="54">
     </a>
@@ -153,4 +153,36 @@
 </div>
 
 {% endif %}
+
+<script>
+  // The queue is polled every minute server-side; without this you would
+  // still have to reload to watch a download move. Only the parts that can
+  // change are swapped — the page keeps its layout and scroll position.
+  const LIVE_INTERVAL = 30000;
+
+  async function refreshStates() {
+    if (document.visibilityState !== 'visible') return;
+    let data;
+    try {
+      const r = await fetch('/api/calendar/live');
+      if (!r.ok) return;
+      data = await r.json();
+    } catch (err) {
+      return;   // A blip is not worth disturbing the page over.
+    }
+    for (const [id, live] of Object.entries(data.episodes || {})) {
+      const row = document.querySelector('[data-episode="' + id + '"]');
+      if (!row) continue;
+      row.className = row.className.replace(/state-\S+/, 'state-' + live.state);
+      const pill = row.querySelector('.pill');
+      if (!pill) continue;
+      pill.textContent = live.state === 'downloading' && live.progress
+        ? live.mark + ' ' + Math.round(live.progress) + '%'
+        : live.mark + ' ' + live.label;
+    }
+  }
+
+  setInterval(refreshStates, LIVE_INTERVAL);
+  document.addEventListener('visibilitychange', refreshStates);
+</script>
 {% endblock %}

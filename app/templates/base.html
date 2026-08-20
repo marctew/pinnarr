@@ -371,6 +371,18 @@
     margin-left: auto; font-weight: 400; font-size: 12px; color: var(--ok);
   }
   .season .eps { padding: 0 .5rem .5rem; }
+  .season > summary .heat { display: flex; gap: 1px; margin-left: .6rem; }
+  .season > summary .heat .tick { width: 5px; height: 12px; border-radius: 1px;
+                                  background: var(--line); }
+  /* TMDB scores cluster between 6 and 9, so the ramp is tight where it counts. */
+  .heat .tick.r0 { background: var(--line); }
+  .heat .tick.r1, .heat .tick.r2, .heat .tick.r3,
+  .heat .tick.r4, .heat .tick.r5 { background: var(--bad); }
+  .heat .tick.r6 { background: var(--warn); }
+  .heat .tick.r7 { background: #6f9b5a; }
+  .heat .tick.r8 { background: var(--ok); }
+  .heat .tick.r9, .heat .tick.r10 { background: #35d08a; }
+  .ep .code .score { color: var(--muted); font-size: 11px; margin-left: .3rem; }
   .season > summary .progress {
     flex: 0 1 140px; display: flex; height: 5px; border-radius: 3px;
     overflow: hidden; background: var(--line); margin-left: auto;

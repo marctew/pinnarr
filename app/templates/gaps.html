@@ -16,6 +16,29 @@
   </p>
 {% endif %}
 
+{% if shortfall %}
+  <h2 class="section warn">⚠ In Sonarr, not in Plex</h2>
+  <p class="hint">Sonarr holds these files but Plex isn't showing them — usually
+    a naming problem, a scan that hasn't run, or a file Plex can't read. Nothing
+    else notices, and you'd only find out looking for an episode Sonarr insists
+    is there.</p>
+  <table class="users">
+    <thead><tr><th>Series</th><th>Sonarr</th><th>Plex</th><th>Missing</th></tr></thead>
+    <tbody>
+      {% for row in shortfall %}
+        <tr>
+          <td><a href="/series/{{ row['id'] }}">{{ row['title'] }}</a></td>
+          <td>{{ row['have_sonarr'] }}</td>
+          <td>{{ row['have_plex'] }}</td>
+          <td class="detail bad">{{ row['have_sonarr'] - row['have_plex'] }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section">Never arrived</h2>
+{% endif %}
+
 {% for series, episodes in groups %}
   <section class="ready">
     <a class="art" href="/series/{{ series['id'] }}" tabindex="-1" aria-hidden="true">

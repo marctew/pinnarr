@@ -207,6 +207,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `schedule_changes` | 03:40 nightly | Announce air dates that have moved |
 | `sonarr_tags` | every 10 min | Two-way sync of pins and per-user Sonarr tags |
 | `plex_watchlist` | every 10 min | Two-way sync of pins and each user's Plex Watchlist |
+| `suggestions` | 03:35 nightly | TMDB recommendations for pinned series |
 | `season_alerts` | Mon 09:00 | Nudge about unpinned shows that gained a date |
 | `reconcile` | 04:00 nightly | Catch anything the webhook missed; fire late notifications |
 | `housekeeping` | 04:30 nightly | Prune sync_log, expired sessions and stale posters |
@@ -328,6 +329,7 @@ GET   /retire                    Pins that can never produce another episode
 POST  /api/episodes/{id}/why     Ask Sonarr why this hasn't turned up
 POST  /api/episodes/{id}/search  Ask Sonarr to look again
 GET   /discover                  Unpinned series with something coming
+GET   /api/calendar/live         Current episode states, for in-page refresh
 GET   /settings/backup           Download and restore (admin)
 GET   /api/backup                The three things that cannot be re-synced
 POST  /api/series/{id}/episodes  Pull the full episode list from Sonarr
