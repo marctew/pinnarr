@@ -551,3 +551,14 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
   .note { grid-template-columns: 1fr auto; }
   .note .body { grid-column: 1 / -1; }
 }
+
+/* ── Per-pin preferences ───────────────────────── */
+.prefs {
+  margin: 1.2rem 0 0; padding: .8rem 1rem;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+}
+.pref-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 0; }
+.prefs .pref-row + .hint { margin: .35rem 0 .9rem; }
+.prefs .pref-row:last-of-type + .hint { margin-bottom: 0; }
+.pref-label { font-weight: 600; font-size: 13px; margin-right: .2rem; }
+.pill.warn { border-color: var(--warn); color: var(--warn); }

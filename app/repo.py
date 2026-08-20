@@ -1257,6 +1257,80 @@ def suggested(conn: sqlite3.Connection, user_id: int, limit: int = 30) -> list[s
 STALLED_HOURS = 3
 
 
+#: A pin is snoozed if a date was set and has not passed, or if it was
+#: snoozed until the show returns and the show still has no date. Written
+#: once, as a string, because four different queries need exactly this test
+#: and a copy that drifts is a notification you were promised you would not
+#: get.
+SNOOZED = """(
+    (p.snoozed_until IS NOT NULL AND p.snoozed_until > :now)
+    OR (p.snooze_until_dated = 1 AND s.next_airing IS NULL)
+)"""
+
+
+def snooze(conn: sqlite3.Connection, user_id: int, series_id: int, *,
+           until: str | None = None, until_dated: bool = False) -> None:
+    """Stop notifying about one show without giving up the pin.
+
+    Both arguments cleared together, so choosing a date cancels "until it
+    returns" and vice versa. Passing neither wakes it up.
+    """
+    conn.execute(
+        "UPDATE pins SET snoozed_until = ?, snooze_until_dated = ? "
+        "WHERE user_id = ? AND series_id = ?",
+        (until, int(until_dated), user_id, series_id),
+    )
+
+
+def is_snoozed(conn: sqlite3.Connection, user_id: int, series_id: int) -> bool:
+    row = conn.execute(
+        f"SELECT {SNOOZED} AS snoozed FROM pins p JOIN series s ON s.id = p.series_id "
+        "WHERE p.user_id = :uid AND p.series_id = :sid",
+        {"now": utcnow(), "uid": user_id, "sid": series_id},
+    ).fetchone()
+    return bool(row and row["snoozed"])
+
+
+def set_season_pack(conn: sqlite3.Connection, user_id: int, series_id: int,
+                    wanted: bool) -> None:
+    conn.execute(
+        "UPDATE pins SET season_pack = ? WHERE user_id = ? AND series_id = ?",
+        (int(wanted), user_id, series_id),
+    )
+
+
+def pin_preferences(conn: sqlite3.Connection, user_id: int,
+                    series_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        f"""
+        SELECT p.notify, p.snoozed_until, p.snooze_until_dated, p.season_pack,
+               {SNOOZED} AS snoozed
+        FROM pins p JOIN series s ON s.id = p.series_id
+        WHERE p.user_id = :uid AND p.series_id = :sid
+        """,
+        {"now": utcnow(), "uid": user_id, "sid": series_id},
+    ).fetchone()
+
+
+def season_is_complete(conn: sqlite3.Connection, series_id: int, season: int) -> bool:
+    """Every episode of the season that has aired is here.
+
+    Unaired episodes do not count against it — a season that is still
+    broadcasting would otherwise never be "complete" and a season-pack pin
+    would never notify at all.
+    """
+    row = conn.execute(
+        """
+        SELECT count(*) AS outstanding FROM episodes
+        WHERE series_id = ? AND season = ? AND monitored = 1
+          AND has_file = 0 AND in_plex = 0
+          AND air_date_utc IS NOT NULL AND air_date_utc < ?
+        """,
+        (series_id, season, utcnow()),
+    ).fetchone()
+    return int(row["outstanding"]) == 0
+
+
 def downloads(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     """Everything Sonarr is fetching for this person's pins, worst first.
 

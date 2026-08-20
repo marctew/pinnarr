@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from hmac import compare_digest
 
 from fastapi import APIRouter, HTTPException, Request
@@ -17,7 +18,10 @@ from app.config import (
 from app.db import session, utcnow
 from app.repo import (
     is_pinned_by,
+    pin_preferences,
     set_notify,
+    set_season_pack,
+    snooze,
 )
 from app.web import templates
 
@@ -85,6 +89,69 @@ async def series_notify(request: Request, series_id: int) -> JSONResponse:
             raise HTTPException(status_code=404, detail="you have not pinned that series")
         set_notify(conn, user_id, series_id, wanted)
     return JSONResponse({"id": series_id, "notify": wanted})
+
+
+#: What the buttons offer. "Until it returns" is the useful one and cannot
+#: be expressed as a date, which is why it is a separate flag rather than a
+#: guess at how long a hiatus lasts.
+SNOOZE_CHOICES = {"1m": 30, "3m": 90, "6m": 180}
+
+
+@router.post("/api/series/{series_id}/snooze")
+async def series_snooze(request: Request, series_id: int) -> JSONResponse:
+    """Mute one show without giving up the pin.
+
+    A show on hiatus produces no episodes but stays in every list and every
+    alert. Unpinning loses your place; this keeps it.
+    """
+    form = await request.form()
+    choice = str(form.get("for", "")).strip()
+    user_id = int(request.state.user["id"])
+
+    if choice == "off":
+        until, dated = None, False
+    elif choice == "dated":
+        until, dated = None, True
+    elif choice in SNOOZE_CHOICES:
+        until = (
+            datetime.now(UTC) + timedelta(days=SNOOZE_CHOICES[choice])
+        ).isoformat()
+        dated = False
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown snooze {choice!r}; use off, dated, "
+                   f"or one of {', '.join(SNOOZE_CHOICES)}",
+        )
+
+    with session() as conn:
+        if not is_pinned_by(conn, user_id, series_id):
+            raise HTTPException(status_code=404, detail="you have not pinned that series")
+        snooze(conn, user_id, series_id, until=until, until_dated=dated)
+        prefs = pin_preferences(conn, user_id, series_id)
+
+    return JSONResponse(
+        {
+            "id": series_id,
+            "snoozed": bool(prefs["snoozed"]),
+            "until": prefs["snoozed_until"],
+            "until_dated": bool(prefs["snooze_until_dated"]),
+        }
+    )
+
+
+@router.post("/api/series/{series_id}/season-pack")
+async def series_season_pack(request: Request, series_id: int) -> JSONResponse:
+    """Hold arrivals for this show until the whole aired season is here."""
+    form = await request.form()
+    wanted = str(form.get("wanted", "true")).lower() not in ("false", "0", "off")
+    user_id = int(request.state.user["id"])
+
+    with session() as conn:
+        if not is_pinned_by(conn, user_id, series_id):
+            raise HTTPException(status_code=404, detail="you have not pinned that series")
+        set_season_pack(conn, user_id, series_id, wanted)
+    return JSONResponse({"id": series_id, "season_pack": wanted})
 
 
 @router.post("/api/profile/watchlist-test")

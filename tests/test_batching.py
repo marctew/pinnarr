@@ -147,8 +147,24 @@ async def test_turning_batching_off_hands_the_push_back_to_the_webhook(client, a
         seed(conn, user_id, episodes=[1])
     save_settings({"notify_batch_minutes": "0"})
 
-    assert "skipped" in await notify_pending()
+    assert await notify_pending() == "nothing pending"
     assert pushes == []
+
+
+async def test_a_season_pack_pin_is_still_this_jobs_work_without_batching(
+    client, admin_token, pushes
+):
+    """The webhook pushes directly when batching is off, but it deliberately
+    skips season-pack pins — so if this job stood down entirely, those pins
+    would never be notified at all."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = seed(conn, user_id, episodes=[1])
+        conn.execute("UPDATE pins SET season_pack = 1 WHERE series_id = ?", (sid,))
+    save_settings({"notify_batch_minutes": "0"})
+
+    await notify_pending()
+    assert len(pushes) == 1
 
 
 def test_the_webhook_queues_instead_of_pushing_while_batching(client, admin_token, pushes):

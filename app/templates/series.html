@@ -34,6 +34,42 @@
       <p class="hint">{{ reason }}</p>
     {% endfor %}
 
+    {% if prefs %}
+      <div class="prefs" id="prefs">
+        <p class="pref-row">
+          <span class="pref-label">Notifications</span>
+          {% if prefs['snoozed'] %}
+            <span class="pill warn" id="snooze-state">
+              {%- if prefs['snooze_until_dated'] %}snoozed until it returns
+              {%- else %}snoozed until {{ prefs['snoozed_until'][:10] }}{% endif -%}
+            </span>
+            <button type="button" class="tiny" onclick="setSnooze({{ s['id'] }}, 'off')">Wake up</button>
+          {% else %}
+            <span class="pill" id="snooze-state">on</span>
+            <button type="button" class="tiny" onclick="setSnooze({{ s['id'] }}, 'dated')"
+                    title="Until Sonarr or TMDB gives it a date">until it returns</button>
+            <button type="button" class="tiny" onclick="setSnooze({{ s['id'] }}, '1m')">1 month</button>
+            <button type="button" class="tiny" onclick="setSnooze({{ s['id'] }}, '3m')">3 months</button>
+          {% endif %}
+        </p>
+        <p class="hint">Snoozing keeps the pin and your place — it only stops
+          the pushes and drops the show out of the weekly digest.</p>
+
+        <p class="pref-row">
+          <label class="check">
+            <input type="checkbox" id="season-pack" {{ 'checked' if prefs['season_pack'] }}
+                   onchange="setSeasonPack({{ s['id'] }}, this.checked)">
+            Wait for the whole season
+          </label>
+          <span class="result" id="pack-result"></span>
+        </p>
+        <p class="hint">One push once every aired episode of the season is
+          here, rather than one as each lands. Gives up and tells you what
+          arrived after a fortnight, so a single unseeded episode cannot
+          silence the rest.</p>
+      </div>
+    {% endif %}
+
     {% if s['overview'] %}<p class="overview">{{ s['overview'] }}</p>{% endif %}
 
     <dl class="facts">
@@ -145,6 +181,22 @@
     const data = await r.json();
     btn.classList.toggle('primary', data.pinned);
     btn.textContent = data.pinned ? 'Pinned' : 'Pin this show';
+  }
+
+  async function setSnooze(id, choice) {
+    const body = new FormData();
+    body.append('for', choice);
+    const r = await fetch('/api/series/' + id + '/snooze', { method: 'POST', body });
+    if (r.ok) location.reload();
+  }
+
+  async function setSeasonPack(id, wanted) {
+    const out = document.getElementById('pack-result');
+    const body = new FormData();
+    body.append('wanted', wanted ? 'true' : 'false');
+    const r = await fetch('/api/series/' + id + '/season-pack', { method: 'POST', body });
+    out.className = 'result ' + (r.ok ? 'ok' : 'bad');
+    out.textContent = r.ok ? (wanted ? '✓ waiting for full seasons' : '✓ notifying per episode') : '✕ failed';
   }
 
   async function loadGuide(id) {

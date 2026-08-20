@@ -9,6 +9,7 @@ from app import notify
 from app.config import get_settings
 from app.db import session, utcnow
 from app.jobs import tracked
+from app.repo import SNOOZED, season_is_complete
 
 log = logging.getLogger(__name__)
 
@@ -47,17 +48,21 @@ async def notify_arrival(series_id: int, season: int, episode: int) -> int:
             return 0
 
         recipients = conn.execute(
-            """
+            f"""
             SELECT u.id, u.ntfy_topic
-            FROM pins p JOIN users u ON u.id = p.user_id
-            WHERE p.series_id = ? AND p.notify = 1
+            FROM pins p
+            JOIN users u ON u.id = p.user_id
+            JOIN series s ON s.id = p.series_id
+            WHERE p.series_id = :sid AND p.notify = 1
+              AND p.season_pack = 0
+              AND NOT {SNOOZED}
               AND u.ntfy_topic IS NOT NULL AND u.ntfy_topic != ''
               AND NOT EXISTS (
                   SELECT 1 FROM episode_notifications n
-                  WHERE n.user_id = u.id AND n.episode_id = ?
+                  WHERE n.user_id = u.id AND n.episode_id = :eid
               )
             """,
-            (series_id, episode_row["episode_id"]),
+            {"sid": series_id, "eid": episode_row["episode_id"], "now": utcnow()},
         ).fetchall()
 
     if not recipients:
@@ -95,11 +100,15 @@ async def reconcile() -> str:
 
     with session() as conn:
         pending = conn.execute(
-            """
+            f"""
             SELECT DISTINCT e.series_id, e.season, e.episode
-            FROM episodes e JOIN pins p ON p.series_id = e.series_id AND p.notify = 1
+            FROM episodes e
+            JOIN pins p ON p.series_id = e.series_id AND p.notify = 1
+            JOIN series s ON s.id = e.series_id
             WHERE (e.has_file = 1 OR e.in_plex = 1)
-              AND e.arrived_at IS NOT NULL AND e.arrived_at >= ?
+              AND e.arrived_at IS NOT NULL AND e.arrived_at >= :cutoff
+              AND p.season_pack = 0
+              AND NOT {SNOOZED}
               AND EXISTS (
                   SELECT 1 FROM users u
                   WHERE u.id = p.user_id AND u.ntfy_topic IS NOT NULL AND u.ntfy_topic != ''
@@ -110,7 +119,7 @@ async def reconcile() -> str:
               )
             ORDER BY e.series_id, e.season, e.episode
             """,
-            (cutoff,),
+            {"cutoff": cutoff, "now": utcnow()},
         ).fetchall()
 
     sent = 0
@@ -163,17 +172,19 @@ async def weekly_digest() -> str:
     for user in users:
         with session() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT s.title AS series_title, e.season, e.episode, e.air_date_utc
                 FROM episodes e
                 JOIN series s ON s.id = e.series_id
-                JOIN pins p ON p.series_id = s.id AND p.user_id = ?
+                JOIN pins p ON p.series_id = s.id AND p.user_id = :uid
                 WHERE e.air_date_utc IS NOT NULL
-                  AND e.air_date_utc >= ? AND e.air_date_utc < ?
+                  AND e.air_date_utc >= :start AND e.air_date_utc < :end
                   AND e.season > 0
+                  AND NOT {SNOOZED}
                 ORDER BY e.air_date_utc
                 """,
-                (user["id"], now.isoformat(), end.isoformat()),
+                {"uid": user["id"], "start": now.isoformat(), "end": end.isoformat(),
+                 "now": utcnow()},
             ).fetchall()
 
         if not rows:
@@ -200,6 +211,30 @@ async def weekly_digest() -> str:
             sent += 1
 
     return f"digest sent to {sent} user(s), {quiet} had nothing scheduled"
+
+
+#: How long a season-pack pin will wait for the rest of a season before
+#: giving up and telling you what did arrive. Without a ceiling, one episode
+#: nobody ever seeds means you are never told about the other nine.
+SEASON_PACK_PATIENCE_DAYS = 14
+
+
+def _season_ready(series_id: int, episodes: list) -> bool:
+    """Has every aired episode of these seasons turned up?
+
+    Unaired ones do not count, or a season still broadcasting would never be
+    complete and the pin would never notify at all.
+    """
+    oldest = min(e["arrived_at"] for e in episodes)
+    deadline = (datetime.now(UTC) - timedelta(days=SEASON_PACK_PATIENCE_DAYS)).isoformat()
+    if oldest < deadline:
+        return True
+
+    with session() as conn:
+        return all(
+            season_is_complete(conn, series_id, season)
+            for season in {int(e["season"]) for e in episodes}
+        )
 
 
 def _summarise(series_title: str, episodes: list) -> tuple[str, str]:
@@ -237,25 +272,39 @@ async def notify_pending() -> str:
     settings = get_settings()
     if not settings.notify_on_arrival:
         return "skipped: arrival notifications are off"
-    if settings.notify_batch_minutes <= 0:
-        return "skipped: batching disabled, the webhook pushes directly"
+    # Batching off means the webhook pushes each arrival directly. It skips
+    # season-pack pins, though, so those are still this job's to deliver.
+    packs_only = settings.notify_batch_minutes <= 0
 
     now = datetime.now(UTC)
     settled_before = (now - timedelta(minutes=settings.notify_batch_minutes)).isoformat()
     floor = (now - timedelta(hours=RECONCILE_WINDOW_HOURS)).isoformat()
+    # The ordinary floor stops a first run announcing the back catalogue. A
+    # season-pack pin is deliberately waiting longer than that, so its
+    # arrivals have to stay visible for as long as the hold can last — or
+    # they age out of this query and are never announced at all.
+    # Twice the patience, not exactly it: at the boundary the arrival would
+    # age out of the query in the same tick the hold expires, and the push
+    # nobody was waiting for would be the one that never came.
+    pack_floor = (now - timedelta(days=SEASON_PACK_PATIENCE_DAYS * 2)).isoformat()
 
     with session() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT u.id AS user_id, u.ntfy_topic, s.id AS series_id,
                    s.title AS series_title, e.id AS episode_id, e.season, e.episode,
-                   e.title AS episode_title, e.arrived_at
+                   e.title AS episode_title, e.arrived_at, p.season_pack
             FROM episodes e
             JOIN series s ON s.id = e.series_id
             JOIN pins p ON p.series_id = s.id AND p.notify = 1
             JOIN users u ON u.id = p.user_id
             WHERE (e.has_file = 1 OR e.in_plex = 1)
-              AND e.arrived_at IS NOT NULL AND e.arrived_at >= ?
+              AND e.arrived_at IS NOT NULL
+              AND e.arrived_at >= (
+                  CASE WHEN p.season_pack = 1 THEN :pack_floor ELSE :floor END
+              )
+              AND (p.season_pack = 1 OR :packs_only = 0)
+              AND NOT {SNOOZED}
               AND u.ntfy_topic IS NOT NULL AND u.ntfy_topic != ''
               AND NOT EXISTS (
                   SELECT 1 FROM episode_notifications n
@@ -263,7 +312,8 @@ async def notify_pending() -> str:
               )
             ORDER BY u.id, s.id, e.season, e.episode
             """,
-            (floor,),
+            {"floor": floor, "pack_floor": pack_floor, "now": utcnow(),
+             "packs_only": int(packs_only)},
         ).fetchall()
 
     groups: dict[tuple[int, int], list] = {}
@@ -272,11 +322,16 @@ async def notify_pending() -> str:
 
     sent = 0
     waiting = 0
-    for (user_id, _series_id), episodes in groups.items():
+    held = 0
+    for (user_id, series_id), episodes in groups.items():
         if max(e["arrived_at"] for e in episodes) > settled_before:
             # Still importing. Leave it for a later tick rather than splitting
             # one season across several notifications.
             waiting += 1
+            continue
+
+        if episodes[0]["season_pack"] and not _season_ready(series_id, episodes):
+            held += 1
             continue
 
         title, body = _summarise(episodes[0]["series_title"], episodes)
@@ -294,9 +349,12 @@ async def notify_pending() -> str:
                 )
         sent += 1
 
-    if not sent and not waiting:
+    if not sent and not waiting and not held:
         return "nothing pending"
-    return f"{sent} notification(s) sent, {waiting} group(s) still settling"
+    note = f"{sent} notification(s) sent, {waiting} group(s) still settling"
+    if held:
+        note += f", {held} waiting for a full season"
+    return note
 
 
 def _describe_move(old: str | None, new: str | None, tz: str) -> str:

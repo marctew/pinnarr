@@ -23,6 +23,7 @@ from app.repo import (
     latest_season,
     mark_episodes_synced,
     next_unwatched,
+    pin_preferences,
     season_progress,
     set_ratings,
     upsert_episode,
@@ -116,6 +117,7 @@ async def series_detail(request: Request, series_id: int):
         progress = season_progress(conn, series_id, viewer)
         up_next = next_unwatched(conn, viewer, series_id)
         genres = genres_for(conn, series_id)
+        prefs = pin_preferences(conn, viewer, series_id)
 
     return templates.TemplateResponse(
         request,
@@ -136,5 +138,6 @@ async def series_detail(request: Request, series_id: int):
             ),
             "up_next": decorate(up_next, now=now, tz=str(tz)) if up_next else None,
             "progress": progress,
+            "prefs": prefs,
         },
     )
