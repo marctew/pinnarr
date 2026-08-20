@@ -195,3 +195,104 @@ async def test_nobody_without_a_topic_is_nudged(client, pushes):
         add(conn, "The Diplomat", outlook="dated", next_airing=soon)
     assert "skipped" in await notify_new_seasons()
     assert pushes == []
+
+
+# ── Gaps ──
+
+
+def gap_seed(conn, user_id, *, title="Line of Duty", missing=(4,), have=(1, 2, 3),
+             season=2, tvdb_id=None, specials=False, synced=True):
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO series (title, sort_title, tvdb_id, pinned, episodes_synced_at, "
+        "created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)",
+        (title, title.lower(), tvdb_id, now if synced else None, now, now),
+    )
+    sid = int(cur.lastrowid)
+    aired = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+
+    def episode(number, has_file, in_season):
+        conn.execute(
+            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+            "has_file, in_plex, monitored, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?)",
+            (sid, in_season, number, f"Episode {number}", aired, has_file, now),
+        )
+
+    for number in have:
+        episode(number, 1, season)
+    for number in missing:
+        episode(number, 0, season)
+    if specials:
+        episode(99, 0, 0)
+
+    conn.execute(
+        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+        (user_id, sid, now),
+    )
+    return sid
+
+
+def test_a_hole_in_a_season_is_found(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        gap_seed(conn, user_id)
+    body = client.get("/gaps").text
+    assert "Line of Duty" in body
+    assert "S02E04" in body
+
+
+def test_a_complete_season_is_not_a_gap(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        gap_seed(conn, user_id, missing=(), have=(1, 2, 3))
+    assert "Line of Duty" not in client.get("/gaps").text
+
+
+def test_a_missing_special_is_not_a_hole_in_a_story(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        gap_seed(conn, user_id, missing=(), have=(1,), specials=True)
+    assert "Line of Duty" not in client.get("/gaps").text
+
+
+def test_something_not_yet_aired_is_not_missing(client, admin_token):
+    _, user_id = admin_token
+    now = utcnow()
+    with session() as conn:
+        cur = conn.execute(
+            "INSERT INTO series (title, sort_title, pinned, created_at, updated_at) "
+            "VALUES ('Silo', 'silo', 1, ?, ?)", (now, now),
+        )
+        sid = int(cur.lastrowid)
+        conn.execute(
+            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+            "has_file, in_plex, monitored, updated_at) "
+            "VALUES (?, 3, 9, 'Later', ?, 0, 0, 1, ?)",
+            (sid, (datetime.now(UTC) + timedelta(days=7)).isoformat(), now),
+        )
+        conn.execute(
+            "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+            (user_id, sid, now),
+        )
+    assert "Silo" not in client.get("/gaps").text
+
+
+def test_an_unpinned_show_is_not_your_problem(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = gap_seed(conn, user_id)
+        conn.execute("DELETE FROM pins WHERE series_id = ?", (sid,))
+    assert "Line of Duty" not in client.get("/gaps").text
+
+
+def test_a_partial_sync_is_admitted_rather_than_implied(client, admin_token):
+    """Without a full guide we only hold the calendar window, so "no gaps"
+    would be a claim we cannot make."""
+    _, user_id = admin_token
+    with session() as conn:
+        gap_seed(conn, user_id, synced=False)
+    assert "synced window only" in client.get("/gaps").text
+
+
+def test_with_nothing_pinned_it_says_so(client):
+    assert "Pin something first" in client.get("/gaps").text

@@ -55,6 +55,10 @@ class Settings(BaseModel):
     sonarr_url: str = ""
     sonarr_api_key: str = ""
 
+    #: Mirror pins as Sonarr tags, and pins back from them. Off by default:
+    #: it is the second place Pinnarr writes to another service.
+    sonarr_tag_sync: bool = False
+
     # ── Tautulli ─────────────────────────────────
     tautulli_url: str = ""
     tautulli_api_key: str = ""

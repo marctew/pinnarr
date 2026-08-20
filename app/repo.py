@@ -919,7 +919,12 @@ READY_DAYS = 21
 
 
 def ready_to_watch(
-    conn: sqlite3.Connection, user_id: int, since: str, until: str
+    conn: sqlite3.Connection,
+    user_id: int,
+    since: str,
+    until: str,
+    *,
+    max_runtime: int | None = None,
 ) -> list[tuple[sqlite3.Row, list[sqlite3.Row]]]:
     """Pinned episodes that have arrived recently, grouped by series.
 
@@ -947,9 +952,10 @@ def ready_to_watch(
             WHERE (e.has_file = 1 OR e.in_plex = 1)
               AND COALESCE(e.arrived_at, e.air_date_utc) >= ?
               AND COALESCE(e.arrived_at, e.air_date_utc) <= ?
+              AND (? IS NULL OR (e.runtime IS NOT NULL AND e.runtime <= ?))
             ORDER BY recency DESC, e.season ASC, e.episode ASC
             """,
-            (user_id, since, until),
+            (user_id, since, until, max_runtime, max_runtime),
         )
     )
 
@@ -1009,3 +1015,82 @@ def retire(conn: sqlite3.Connection, user_id: int, series_ids: list[int]) -> tup
             refresh_pinned_flag(conn, series_id)
             removed += 1
     return removed, batch
+
+
+
+def season_progress(conn: sqlite3.Connection, series_id: int) -> dict[int, dict[str, int]]:
+    """Per season: how much exists, has aired, and is actually here.
+
+    Answers "am I waiting or am I behind?", which otherwise needs the episode
+    list and some counting.
+    """
+    rows = conn.execute(
+        """
+        SELECT season,
+               count(*) AS total,
+               sum(CASE WHEN air_date_utc IS NOT NULL AND air_date_utc <= ?
+                        THEN 1 ELSE 0 END) AS aired,
+               sum(CASE WHEN has_file = 1 OR in_plex = 1 THEN 1 ELSE 0 END) AS have
+        FROM episodes WHERE series_id = ? GROUP BY season
+        """,
+        (utcnow(), series_id),
+    )
+    return {
+        int(r["season"]): {
+            "total": int(r["total"]),
+            "aired": int(r["aired"] or 0),
+            "have": int(r["have"] or 0),
+        }
+        for r in rows
+    }
+
+
+# ── Gaps ─────────────────────────────────────────
+
+
+def gaps(conn: sqlite3.Connection, user_id: int) -> list[tuple[sqlite3.Row, list[sqlite3.Row]]]:
+    """Aired episodes of pinned shows that never turned up, grouped by series.
+
+    Distinct from "aired, not arrived" on the calendar, which is bounded to
+    30 days so this week's problem isn't buried. This is the whole back
+    catalogue: a hole in the middle of season two is invisible until you sit
+    down to watch it and can't.
+
+    Specials are excluded — a missing Christmas one-off is not a gap in a
+    story — and so is anything Sonarr isn't chasing.
+    """
+    rows = list(
+        conn.execute(
+            """
+            SELECT e.*, s.id AS series_id, s.title AS series_title,
+                   s.episodes_synced_at
+            FROM episodes e
+            JOIN series s ON s.id = e.series_id
+            JOIN pins p ON p.series_id = s.id AND p.user_id = ?
+            WHERE e.season > 0
+              AND e.monitored = 1
+              AND e.has_file = 0 AND e.in_plex = 0
+              AND e.air_date_utc IS NOT NULL AND e.air_date_utc < ?
+            ORDER BY s.sort_title, e.season, e.episode
+            """,
+            (user_id, utcnow()),
+        )
+    )
+
+    grouped: dict[int, list[sqlite3.Row]] = {}
+    order: list[int] = []
+    for row in rows:
+        sid = int(row["series_id"])
+        if sid not in grouped:
+            grouped[sid] = []
+            order.append(sid)
+        grouped[sid].append(row)
+
+    series_rows = {}
+    if order:
+        marks = ",".join("?" * len(order))
+        series_rows = {
+            int(r["id"]): r
+            for r in conn.execute(f"SELECT * FROM series WHERE id IN ({marks})", order)
+        }
+    return [(series_rows[sid], grouped[sid]) for sid in order if sid in series_rows]

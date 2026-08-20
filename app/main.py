@@ -57,6 +57,7 @@ from app.repo import (
     episodes_by_season,
     facet_counts,
     finished_pins,
+    gaps,
     genres_for,
     get_series,
     is_pinned_by,
@@ -71,6 +72,7 @@ from app.repo import (
     query_series,
     ready_to_watch,
     retire,
+    season_progress,
     section_titles,
     set_notify,
     set_pinned,
@@ -171,6 +173,7 @@ templates.env.globals.update(
     outlook_badge=labels.outlook_badge,
     status_label=labels.sonarr_status,
     relative_day=labels.relative_day,
+    duration=labels.duration,
     OUTLOOK=labels.OUTLOOK,
     SONARR_STATUS=labels.SONARR_STATUS,
 )
@@ -1048,7 +1051,7 @@ async def episode_search(episode_id: int) -> JSONResponse:
 
 
 @app.get("/ready")
-async def ready(request: Request):
+async def ready(request: Request, fits: str = ""):
     """What has landed and is waiting, rather than what is coming.
 
     The calendar is built around anticipation. This is the other half: for
@@ -1059,9 +1062,15 @@ async def ready(request: Request):
     now, tz = _now_local()
     since = (now - timedelta(days=READY_DAYS)).isoformat()
 
+    max_runtime: int | None = None
+    with suppress(ValueError):
+        max_runtime = int(fits) if fits else None
+
     with session() as conn:
         # An air date in the future is not "ready", however present the file.
-        grouped = ready_to_watch(conn, user_id, since, now.isoformat())
+        grouped = ready_to_watch(
+            conn, user_id, since, now.isoformat(), max_runtime=max_runtime
+        )
 
     today = now.astimezone(tz).date()
 
@@ -1085,10 +1094,43 @@ async def ready(request: Request):
         request,
         "ready.html",
         {
+            # Minutes summed here rather than in the template: Jinja's sum
+            # filter cannot cope with a NULL runtime, which plenty have.
             "groups": [
-                (series, [dress(e) for e in episodes]) for series, episodes in grouped
+                (
+                    series,
+                    [dress(e) for e in episodes],
+                    sum(int(e["runtime"] or 0) for e in episodes),
+                )
+                for series, episodes in grouped
             ],
             "days": READY_DAYS,
+            "fits": fits,
+            "total_minutes": sum(
+                int(e["runtime"] or 0) for _, episodes in grouped for e in episodes
+            ),
+        },
+    )
+
+
+@app.get("/gaps")
+async def gaps_page(request: Request):
+    """Holes in the shows you follow."""
+    user_id = int(request.state.user["id"])
+    now, tz = _now_local()
+    with session() as conn:
+        grouped = gaps(conn, user_id)
+        pinned_total = pinned_count(conn, user_id)
+
+    return templates.TemplateResponse(
+        request,
+        "gaps.html",
+        {
+            "groups": [
+                (series, [decorate(e, now=now, tz=str(tz)) for e in episodes])
+                for series, episodes in grouped
+            ],
+            "pinned_total": pinned_total,
         },
     )
 
@@ -1194,6 +1236,7 @@ async def series_detail(request: Request, series_id: int):
         if row is None:
             raise HTTPException(status_code=404, detail="no such series")
         seasons = episodes_by_season(conn, series_id)
+        progress = season_progress(conn, series_id)
         genres = genres_for(conn, series_id)
 
     return templates.TemplateResponse(
@@ -1209,5 +1252,6 @@ async def series_detail(request: Request, series_id: int):
                 for number, eps in seasons
             ],
             "open_season": latest_season(seasons),
+            "progress": progress,
         },
     )

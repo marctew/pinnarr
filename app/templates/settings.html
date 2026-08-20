@@ -64,6 +64,16 @@
       <input type="url" name="sonarr_url" value="{{ s.sonarr_url }}" placeholder="http://192.168.4.10:8989">
     </label>
     {{ secret("sonarr_api_key", "API key", saved.sonarr_api_key) }}
+    <label class="check">
+      <input type="hidden" name="sonarr_tag_sync" value="false">
+      <input type="checkbox" name="sonarr_tag_sync" value="true"
+             {{ 'checked' if s.sonarr_tag_sync }}>
+      Mirror pins as Sonarr tags
+    </label>
+    <p class="hint">Each account gets a tag — <code>pinnarr-marc</code> — kept in
+      step with their pins, in both directions. Tag a series in Sonarr and it
+      pins here; unpin here and the tag goes. This writes to Sonarr, which is
+      why it is off by default.</p>
     {{ tester("sonarr", "Sonarr") }}
   </fieldset>
 

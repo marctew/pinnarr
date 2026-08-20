@@ -5,14 +5,27 @@
 {% block content %}
 <h1>Ready to watch</h1>
 <p class="lede">Episodes from your pinned shows that are in Plex and turned up
-  in the last {{ days }} days.</p>
+  in the last {{ days }} days.{% if total_minutes %}
+  <strong>{{ duration(total_minutes) }}</strong> waiting.{% endif %}</p>
+
+<p class="fits">
+  <span class="hint">Fits in</span>
+  {% for value, label in [('', 'any'), ('30', '30 min'), ('60', '1 hour'), ('90', '90 min')] %}
+    <a class="chip {{ 'on' if fits == value }}"
+       href="/ready{{ '?fits=' ~ value if value }}">{{ label }}</a>
+  {% endfor %}
+</p>
 
 {% if not groups %}
-  <p class="empty">Nothing new. Either you're caught up, or nothing you follow
-    has arrived recently — the <a href="/">calendar</a> shows what's coming.</p>
+  {% if fits %}
+    <p class="empty">Nothing that short. <a href="/ready">Show everything</a>.</p>
+  {% else %}
+    <p class="empty">Nothing new. Either you're caught up, or nothing you follow
+      has arrived recently — the <a href="/">calendar</a> shows what's coming.</p>
+  {% endif %}
 {% endif %}
 
-{% for series, episodes in groups %}
+{% for series, episodes, minutes in groups %}
   <section class="ready">
     <a class="art" href="/series/{{ series['id'] }}" tabindex="-1" aria-hidden="true">
       <img src="/poster/{{ series['id'] }}" alt="" loading="lazy">
@@ -20,7 +33,7 @@
     <div class="body">
       <h2>
         <a href="/series/{{ series['id'] }}">{{ series['title'] }}</a>
-        <span class="count">{{ episodes|length }} episode{{ '' if episodes|length == 1 else 's' }}</span>
+        <span class="count">{{ episodes|length }} episode{{ '' if episodes|length == 1 else 's' }}{% if minutes %} · {{ duration(minutes) }}{% endif %}</span>
         {# Ordered newest first, so the first row dates the whole group. #}
         <span class="recency">{{ episodes[0].arrived }}</span>
       </h2>

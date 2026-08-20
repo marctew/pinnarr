@@ -206,6 +206,54 @@ class SonarrClient:
         )
         return int((payload or {}).get("id") or 0)
 
+    async def tags(self) -> dict[str, int]:
+        """Every tag Sonarr knows, label → id. Labels are lowercased by Sonarr."""
+        data = await self._get("/tag")
+        return {
+            str(t["label"]).lower(): int(t["id"])
+            for t in data or []
+            if isinstance(t, dict) and t.get("label") is not None
+        }
+
+    async def create_tag(self, label: str) -> int:
+        if not self.base or not self.api_key:
+            raise UpstreamError(self.service, "not configured")
+        data = await request_json(
+            self.service, "POST", f"{self.base}/api/v3/tag",
+            headers={"X-Api-Key": self.api_key}, json_body={"label": label.lower()},
+        )
+        return int((data or {}).get("id") or 0)
+
+    async def tagged_series(self, tag_id: int) -> set[int]:
+        """Sonarr ids of every series carrying this tag."""
+        data = await self._get("/series")
+        return {
+            int(item["id"])
+            for item in data or []
+            if isinstance(item, dict) and tag_id in (item.get("tags") or [])
+        }
+
+    async def apply_tag(self, series_ids: list[int], tag_id: int, *, add: bool) -> None:
+        """Add or remove one tag across many series in a single call.
+
+        The editor endpoint exists for exactly this; the alternative is a
+        read-modify-write of each full series resource, which is a race
+        waiting to happen.
+        """
+        if not series_ids:
+            return
+        if not self.base or not self.api_key:
+            raise UpstreamError(self.service, "not configured")
+        await request_json(
+            self.service, "PUT", f"{self.base}/api/v3/series/editor",
+            headers={"X-Api-Key": self.api_key},
+            json_body={
+                "seriesIds": series_ids,
+                "tags": [tag_id],
+                "applyTags": "add" if add else "remove",
+            },
+        )
+
     async def episodes_for_series(self, sonarr_series_id: int) -> list[SonarrEpisode]:
         """Full episode list for one series — used to find the latest aired season."""
         data = await self._get("/episode", seriesId=sonarr_series_id)

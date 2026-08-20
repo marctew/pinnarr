@@ -17,7 +17,7 @@ Pinnarr sits next to Sonarr, Radarr, Tautulli and Plex. You **pin** the handful 
 
 It is a **curation and presentation layer**. It does not download anything, does not manage quality profiles, and does not replace any part of the existing stack.
 
-*One deliberate exception, added in v0.5:* a missing episode can be handed back to Sonarr with **Search again**. That is still curation rather than management — Pinnarr picks no release and no quality profile, it asks the tool that owns downloading to try again.
+*Two deliberate exceptions, added in v0.5:* a missing episode can be handed back to Sonarr with **Search again**, and pins can be mirrored as per-user Sonarr tags (§20). That is still curation rather than management — Pinnarr picks no release and no quality profile, it asks the tool that owns downloading to try again.
 
 ## 2. Why not just use Sonarr's calendar
 
@@ -205,6 +205,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `sonarr_queue` | every minute | What is downloading right now |
 | `notify_pending` | every minute | Push settled arrival batches, one per series |
 | `schedule_changes` | 03:40 nightly | Announce air dates that have moved |
+| `sonarr_tags` | 03:50 nightly | Two-way sync of pins and per-user Sonarr tags |
 | `season_alerts` | Mon 09:00 | Nudge about unpinned shows that gained a date |
 | `reconcile` | 04:00 nightly | Catch anything the webhook missed; fire late notifications |
 | `housekeeping` | 04:30 nightly | Prune sync_log, expired sessions and stale posters |
@@ -321,6 +322,7 @@ POST  /settings                  Save the panel; reschedules if timing changed
 POST  /api/settings/test/{svc}   Connection test against saved settings
 GET   /library                   Poster grid; facets per §11 as query params
 GET   /ready                     Pinned episodes that have arrived, grouped
+GET   /gaps                      Aired episodes of pinned shows that never came
 GET   /retire                    Pins that can never produce another episode
 POST  /api/episodes/{id}/why     Ask Sonarr why this hasn't turned up
 POST  /api/episodes/{id}/search  Ask Sonarr to look again
@@ -550,6 +552,20 @@ accounts existed, so upgrading doesn't silently empty the list.
 **Still not solved:** there is no HTTPS and no rate limiting on the login form.
 On a LAN that is a considered trade; exposed to the internet it is not. Put a
 reverse proxy in front.
+
+## 20. Pins as Sonarr tags
+
+Optional, off by default, and the second place Pinnarr writes to another
+service. Each account gets a tag — `pinnarr-marc` — carrying exactly that
+person's pins. A single shared tag was rejected because it cannot express
+*whose* pin it is, and pins are per user.
+
+**Direction is the hard part.** "Pinned here but not tagged there" is
+ambiguous: it means either *tag it in Sonarr* or *unpin it here*, and guessing
+wrong silently undoes whatever someone just did. So `tag_sync_state` records
+the last observed state of each pair, and whichever side changed since then
+wins. When both changed, Pinnarr wins — pinning is a deliberate act here and a
+side effect of housekeeping there.
 
 ## 18. Beyond v1
 

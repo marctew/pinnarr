@@ -55,6 +55,7 @@ def build_scheduler() -> AsyncIOScheduler:
         plex_sync,
         queue_sync,
         sonarr_sync,
+        tag_sync,
         tautulli_sync,
         tmdb_sync,
     )
@@ -72,6 +73,7 @@ def build_scheduler() -> AsyncIOScheduler:
     nightly(3, 10, sonarr_sync.sync_sonarr_series, "sonarr_series")
     nightly(3, 20, tautulli_sync.sync_tautulli_history, "tautulli_history")
     nightly(3, 30, tmdb_sync.sync_outlook, "tmdb_status")
+    nightly(3, 50, tag_sync.sync_tags, "sonarr_tags")
     nightly(3, 40, notifications.notify_schedule_changes, "schedule_changes")
     nightly(4, 0, notifications.reconcile, "reconcile")
     nightly(4, 30, housekeeping.housekeeping, "housekeeping")

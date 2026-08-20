@@ -203,3 +203,86 @@ def test_a_file_for_something_not_yet_aired_is_not_ready(client, admin_token):
     with session() as conn:
         seed_no_stamp(conn, user_id, aired_days_ago=-3)
     assert "Street Cops" not in client.get("/ready").text
+
+
+# ── Runtime ──
+
+
+def seed_runtime(conn, user_id, *, title="Silo", runtimes=(60,), tvdb_id=None):
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO series (title, sort_title, tvdb_id, pinned, created_at, updated_at) "
+        "VALUES (?, ?, ?, 1, ?, ?)",
+        (title, title.lower(), tvdb_id, now, now),
+    )
+    sid = int(cur.lastrowid)
+    aired = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    for index, runtime in enumerate(runtimes, start=1):
+        conn.execute(
+            "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+            "has_file, in_plex, monitored, runtime, updated_at) "
+            "VALUES (?, 1, ?, ?, ?, 1, 1, 1, ?, ?)",
+            (sid, index, f"Episode {index}", aired, runtime, now),
+        )
+    conn.execute(
+        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+        (user_id, sid, now),
+    )
+    return sid
+
+
+def test_a_group_shows_how_long_it_would_take(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id, runtimes=(60, 45, 60))
+    assert "2h 45m" in client.get("/ready").text
+
+
+def test_the_page_totals_everything_waiting(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id, runtimes=(60,), tvdb_id=1)
+        seed_runtime(conn, user_id, title="Andor", runtimes=(30,), tvdb_id=2)
+    assert "1h 30m" in client.get("/ready").text
+
+
+def test_a_null_runtime_does_not_break_the_total(client, admin_token):
+    """Plenty of episodes have no runtime, and Jinja's sum filter cannot add
+    None to an integer."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id, runtimes=(60, None))
+    assert client.get("/ready").status_code == 200
+
+
+def test_filtering_by_what_fits_in_an_hour(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id, title="Short", runtimes=(30,), tvdb_id=1)
+        seed_runtime(conn, user_id, title="Long", runtimes=(90,), tvdb_id=2)
+    body = client.get("/ready?fits=60").text
+    assert "Short" in body
+    assert "Long" not in body
+
+
+def test_an_episode_with_no_runtime_is_excluded_when_filtering(client, admin_token):
+    """It might be four hours. Offering it under "fits in 30 minutes" would
+    be a guess dressed as an answer."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id, runtimes=(None,))
+    assert "Silo" not in client.get("/ready?fits=30").text
+
+
+def test_a_nonsense_filter_falls_back_to_everything(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id)
+    assert "Silo" in client.get("/ready?fits=banana").text
+
+
+def test_filtering_to_nothing_offers_a_way_back(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id, runtimes=(90,))
+    assert "Show everything" in client.get("/ready?fits=30").text

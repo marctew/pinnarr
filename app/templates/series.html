@@ -71,8 +71,15 @@
     <details class="season" {{ 'open' if number == open_season }}>
       <summary>
         {% if number == 0 %}Specials{% else %}Season {{ number }}{% endif %}
+        {% set bar = progress.get(number, {'total': 0, 'aired': 0, 'have': 0}) %}
         <span class="count">{{ eps|length }} episode{{ '' if eps|length == 1 else 's' }}</span>
-        <span class="have">{{ eps|selectattr('state', 'equalto', 'available')|list|length }} in Plex</span>
+        {% if bar.total %}
+          <span class="progress" title="{{ bar.have }} in Plex, {{ bar.aired }} aired, {{ bar.total }} known">
+            <span class="have" style="width: {{ (bar.have / bar.total * 100)|round(1) }}%"></span>
+            <span class="aired" style="width: {{ ((bar.aired - bar.have) / bar.total * 100)|round(1) }}%"></span>
+          </span>
+        {% endif %}
+        <span class="have">{{ bar.have }}/{{ bar.total }} in Plex</span>
       </summary>
       <ul class="eps">
         {% for ep in eps %}

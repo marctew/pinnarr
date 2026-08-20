@@ -66,3 +66,18 @@ def relative_day(day: object, today: object) -> str:
     if delta == -1:
         return "yesterday"
     return f"in {delta} days" if delta > 0 else f"{-delta} days ago"
+
+
+def duration(minutes: object) -> str:
+    """"2h 45m". The question at 9pm is not what is available, it is what
+    can be finished."""
+    try:
+        total = int(minutes or 0)
+    except (TypeError, ValueError):
+        return ""
+    if total <= 0:
+        return ""
+    hours, mins = divmod(total, 60)
+    if not hours:
+        return f"{mins}m"
+    return f"{hours}h" if not mins else f"{hours}h {mins}m"
