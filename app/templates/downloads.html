@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Downloads · Pinnarr{% endblock %}
+{% block nav_downloads %}active{% endblock %}
+
+{% block content %}
+<h1>Downloading</h1>
+<p class="lede">What Sonarr is fetching for your pins, refreshed every minute.
+  {% if stalled %}<strong>{{ stalled }} stalled.</strong>{% endif %}</p>
+
+{% if not rows %}
+  <p class="empty">Nothing in the queue. The <a href="/">calendar</a> shows
+    what's coming, and <a href="/gaps">gaps</a> what never turned up.</p>
+{% else %}
+  <ul class="queue">
+    {% for r in rows %}
+      <li class="dl{{ ' stalled' if r.stalled }}">
+        <a class="who" href="/series/{{ r['series_id'] }}">{{ r['series_title'] }}</a>
+        <span class="code">S{{ '%02d'|format(r['season']) }}E{{ '%02d'|format(r['episode']) }}</span>
+        <span class="name">{{ r['episode_title'] or '—' }}</span>
+        <span class="bar" title="{{ '%.1f'|format(r['percent']) }}%">
+          <span class="fill" style="width: {{ r['percent']|round(1) }}%"></span>
+        </span>
+        <span class="pct">{{ r['percent']|round|int }}%</span>
+        {% if r.stalled %}
+          <span class="pill bad" title="No movement since {{ r['progress_at'][:16]|replace('T', ' ') }}">
+            stalled {{ since(r['progress_at']) }}</span>
+        {% else %}
+          <span class="pill">{{ r['time_left'] or r['status'] or 'queued' }}</span>
+        {% endif %}
+      </li>
+      {% if r['message'] %}<li class="dl-note">{{ r['message'] }}</li>{% endif %}
+    {% endfor %}
+  </ul>
+
+  {% if stalled %}
+    <p class="hint">Stalled means the percentage hasn't moved in
+      {{ stalled_hours }} hours. Usually no seeds, a dead usenet article, or a
+      client that has quietly stopped — Sonarr will keep the row either way,
+      which is why nothing else tells you.</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

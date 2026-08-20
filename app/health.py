@@ -15,13 +15,13 @@ import logging
 from typing import Any
 
 from app.clients.http import UpstreamError
-from app.clients.ntfy import send as ntfy_send
 from app.clients.plex import PlexClient
 from app.clients.sonarr import SonarrClient
 from app.clients.tautulli import TautulliClient
 from app.clients.tmdb import TmdbClient
 from app.config import get_settings
 from app.db import set_setting
+from app.notify import send as notify_send
 
 log = logging.getLogger(__name__)
 
@@ -97,8 +97,11 @@ async def _test_ntfy() -> dict[str, Any]:
     s = get_settings()
     if not s.ntfy_configured:
         return _fail("No topic saved yet.")
-    sent = await ntfy_send(
-        "Pinnarr test", "If you can read this, notifications work.", tags="tv,white_check_mark"
+    # Logged like any other push: a test that does not appear in the history
+    # would make the history look broken the first time you checked it.
+    sent = await notify_send(
+        "Pinnarr test", "If you can read this, notifications work.",
+        kind="test", tags="tv,white_check_mark",
     )
     if not sent:
         return _fail(f"ntfy rejected the push to {s.ntfy_topic}.")

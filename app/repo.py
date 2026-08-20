@@ -1251,6 +1251,38 @@ def suggested(conn: sqlite3.Connection, user_id: int, limit: int = 30) -> list[s
 # ── Gaps ─────────────────────────────────────────
 
 
+#: No movement in this long and a download has stopped being slow and
+#: started being stuck. Long enough that a big file on a thin line is not
+#: accused, short enough to catch it the same evening.
+STALLED_HOURS = 3
+
+
+def downloads(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
+    """Everything Sonarr is fetching for this person's pins, worst first.
+
+    The queue has been synced every minute since long before there was
+    anywhere to look at it — the data existed, it just never surfaced except
+    as a percentage on whichever calendar row you happened to be reading.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(hours=STALLED_HOURS)).isoformat()
+    return list(
+        conn.execute(
+            """
+            SELECT q.*, e.season, e.episode, e.title AS episode_title,
+                   e.air_date_utc, s.id AS series_id, s.title AS series_title,
+                   (q.progress_at IS NOT NULL AND q.progress_at < ?
+                    AND q.percent < 100) AS stalled
+            FROM download_queue q
+            JOIN episodes e ON e.sonarr_episode_id = q.sonarr_episode_id
+            JOIN series s ON s.id = e.series_id
+            JOIN pins p ON p.series_id = s.id AND p.user_id = ?
+            ORDER BY stalled DESC, q.percent DESC, s.sort_title, e.season, e.episode
+            """,
+            (cutoff, user_id),
+        )
+    )
+
+
 def gaps(conn: sqlite3.Connection, user_id: int) -> list[tuple[sqlite3.Row, list[sqlite3.Row]]]:
     """Aired episodes of pinned shows that never turned up, grouped by series.
 

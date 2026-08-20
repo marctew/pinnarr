@@ -22,21 +22,6 @@ def client(db, admin_token):
         yield c
 
 
-@pytest.fixture
-def pushes(monkeypatch):
-    sent: list[dict] = []
-
-    async def fake_send(title, message, *, tags="tv", priority="default",
-                        click=None, topic=None):
-        sent.append({"title": title, "message": message, "topic": topic})
-        return True
-
-    from app.jobs import notifications
-
-    monkeypatch.setattr(notifications.ntfy, "send", fake_send)
-    return sent
-
-
 def add(conn, title, *, outlook="ended", next_airing=None, pinned_by=None, tvdb_id=None):
     return make_series(
         conn, title, tvdb_id=tvdb_id, outlook=outlook, next_airing=next_airing,

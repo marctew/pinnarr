@@ -2,6 +2,7 @@
 {% block title %}Your account · Pinnarr{% endblock %}
 {% block content %}
 <h1>Your account</h1>
+<p class="lede"><a href="/notifications">Notification history →</a></p>
 <p class="lede">Signed in as <strong>{{ current_user(request)['username'] }}</strong>
   ({{ current_user(request)['role'] }}).</p>
 

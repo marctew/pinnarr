@@ -8,6 +8,7 @@ from each other.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Final
 
 OUTLOOK: Final[dict[str, str]] = {
@@ -81,3 +82,22 @@ def duration(minutes: object) -> str:
     if not hours:
         return f"{mins}m"
     return f"{hours}h" if not mins else f"{hours}h {mins}m"
+
+
+def since(timestamp: object) -> str:
+    """How long ago, coarsely. "4h", "2d" — enough to judge a stalled grab."""
+    if not timestamp:
+        return "a while"
+    try:
+        then = datetime.fromisoformat(str(timestamp))
+    except (TypeError, ValueError):
+        return "a while"
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=UTC)
+    delta = datetime.now(UTC) - then
+    hours = delta.total_seconds() / 3600
+    if hours < 1:
+        return f"{max(1, int(delta.total_seconds() // 60))}m"
+    if hours < 48:
+        return f"{int(hours)}h"
+    return f"{int(hours // 24)}d"

@@ -238,22 +238,6 @@ def test_muting_something_you_have_not_pinned_is_a_404(client):
 # ── The push itself ──
 
 
-@pytest.fixture
-def pushes(monkeypatch):
-    """Capture what would have gone to ntfy."""
-    sent: list[dict] = []
-
-    async def fake_send(title, message, *, tags="tv", priority="default",
-                        click=None, topic=None):
-        sent.append({"title": title, "message": message, "topic": topic})
-        return True
-
-    from app.jobs import notifications
-
-    monkeypatch.setattr(notifications.ntfy, "send", fake_send)
-    return sent
-
-
 def test_an_arrival_pushes_to_whoever_pinned_it(client, admin_token, pushes):
     _, user_id = admin_token
     with session() as conn:

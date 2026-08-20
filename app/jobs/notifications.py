@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from app.clients import ntfy
+from app import notify
 from app.config import get_settings
 from app.db import session, utcnow
 from app.jobs import tracked
@@ -69,7 +69,8 @@ async def notify_arrival(series_id: int, season: int, episode: int) -> int:
 
     sent = 0
     for user in recipients:
-        if not await ntfy.send(title, body, tags="tv,white_check_mark", topic=user["ntfy_topic"]):
+        if not await notify.send(title, body, kind="arrival",
+                                 user_id=int(user["id"]), tags="tv,white_check_mark", topic=user["ntfy_topic"]):
             continue
         # Recorded only on success, so a failed push is retried by reconcile
         # rather than silently swallowed.
@@ -188,9 +189,11 @@ async def weekly_digest() -> str:
             by_day.setdefault(day, []).append(f"{row['series_title']} {code}")
 
         lines = [f"{day}\n  " + "\n  ".join(items) for day, items in by_day.items()]
-        if await ntfy.send(
+        if await notify.send(
             f"This week: {len(rows)} episode(s)",
             "\n".join(lines),
+            kind="digest",
+            user_id=int(user["id"]),
             tags="tv,calendar",
             topic=user["ntfy_topic"],
         ):
@@ -277,8 +280,8 @@ async def notify_pending() -> str:
             continue
 
         title, body = _summarise(episodes[0]["series_title"], episodes)
-        if not await ntfy.send(
-            title, body, tags="tv,white_check_mark", topic=episodes[0]["ntfy_topic"]
+        if not await notify.send(
+            title, body, kind="arrival", user_id=user_id, tags="tv,white_check_mark", topic=episodes[0]["ntfy_topic"]
         ):
             continue
 
@@ -350,9 +353,11 @@ async def notify_schedule_changes() -> str:
     sent = 0
     for row in rows:
         code = _episode_code(row["season"], row["episode"])
-        ok = await ntfy.send(
+        ok = await notify.send(
             f"{row['series_title']} {code} has moved",
             _describe_move(row["old_date"], row["new_date"], settings.tz),
+            kind="schedule",
+            user_id=int(row["user_id"]),
             tags="tv,calendar",
             topic=row["ntfy_topic"],
         )
@@ -421,9 +426,11 @@ async def notify_new_seasons() -> str:
             continue
 
         lines = [f"{r['title']} — {r['next_airing'][:10]}" for r in rows]
-        ok = await ntfy.send(
+        ok = await notify.send(
             f"{len(rows)} show(s) in your library have dates",
             "\n".join(lines),
+            kind="season",
+            user_id=int(user["id"]),
             tags="tv,eyes",
             topic=user["ntfy_topic"],
         )

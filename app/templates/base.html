@@ -12,6 +12,7 @@
   <nav>
     <a href="/" class="{% block nav_calendar %}{% endblock %}">Calendar</a>
     <a href="/ready" class="{% block nav_ready %}{% endblock %}">Ready</a>
+    <a href="/downloads" class="{% block nav_downloads %}{% endblock %}">Downloads</a>
     <a href="/library" class="{% block nav_library %}{% endblock %}">Library</a>
     <a href="/discover" class="{% block nav_discover %}{% endblock %}">Discover</a>
     {% if current_user(request) and current_user(request)['role'] == 'admin' %}

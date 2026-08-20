@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Notifications · Pinnarr{% endblock %}
+
+{% block content %}
+<p class="crumb"><a href="/profile">‹ Your account</a></p>
+<h1>Notification history</h1>
+<p class="lede">Every push Pinnarr has tried to send{% if scope == 'all' %} for anyone{% else %} to you{% endif %},
+  newest first. If one didn't reach your phone, this says whether it left here.</p>
+
+{% if is_admin %}
+  <p class="fits">
+    <span class="hint">Showing</span>
+    <a class="chip {{ 'on' if scope != 'all' }}" href="/notifications">just mine</a>
+    <a class="chip {{ 'on' if scope == 'all' }}" href="/notifications?scope=all">everyone</a>
+  </p>
+{% endif %}
+
+{% if not rows %}
+  <p class="empty">Nothing sent yet. Arrivals push when a pinned episode lands
+    in Plex; the digest goes weekly. You can fire a test from
+    <a href="/settings">settings</a>.</p>
+{% else %}
+  <ul class="notes">
+    {% for r in rows %}
+      <li class="note {{ 'ok' if r['ok'] else 'bad' }}">
+        <span class="stamp" title="{{ r['sent_at'] }}">{{ r['sent_at'][:16]|replace('T', ' ') }}</span>
+        <span class="kind">{{ kinds.get(r['kind'], r['kind']) }}</span>
+        {% if scope == 'all' %}<span class="whom">{{ r['username'] or '—' }}</span>{% endif %}
+        <span class="body">
+          <strong>{{ r['title'] }}</strong>
+          <span class="text">{{ r['body'] }}</span>
+        </span>
+        <span class="pill {{ '' if r['ok'] else 'bad' }}">
+          {{ '✓ sent' if r['ok'] else '✕ failed' }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+  <p class="hint">"Sent" means ntfy accepted it. What happens after that —
+    delivery, your phone's battery saver, a muted topic — is outside Pinnarr
+    and outside this log.</p>
+{% endif %}
+{% endblock %}

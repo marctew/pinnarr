@@ -50,6 +50,7 @@ templates.env.globals.update(
     outlook_badge=labels.outlook_badge,
     status_label=labels.sonarr_status,
     relative_day=labels.relative_day,
+    since=labels.since,
     plex_episode=plex_episode,
     version=ASSET_VERSION,
     duration=labels.duration,

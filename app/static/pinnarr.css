@@ -500,3 +500,54 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
   .library { grid-template-columns: 1fr; }
   .rail { position: static; max-height: none; }
 }
+
+/* ── Downloads ─────────────────────────────────── */
+.queue { list-style: none; padding: 0; margin: 1.2rem 0 0; }
+.dl {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) 5rem minmax(6rem, 1.4fr) 1fr 3rem 7rem;
+  gap: .8rem; align-items: center;
+  padding: .55rem .8rem; border-bottom: 1px solid var(--line);
+}
+.dl .who { font-weight: 600; text-decoration: none; }
+.dl .code { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+.dl .name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl .bar {
+  position: relative; height: 8px; border-radius: 4px;
+  background: var(--line); overflow: hidden;
+}
+.dl .bar .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.dl .pct { font-variant-numeric: tabular-nums; text-align: right; font-size: 12.5px; }
+/* A stalled row is the whole point of the page, so it says so twice: the
+   bar stops being blue and the pill stops being quiet. */
+.dl.stalled .bar .fill { background: var(--bad); }
+.dl.stalled .pill.bad { border-color: var(--bad); color: var(--bad); }
+.dl-note {
+  padding: 0 .8rem .5rem 9rem; color: var(--muted); font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+@media (max-width: 720px) {
+  .dl { grid-template-columns: 1fr 4rem; grid-auto-rows: auto; }
+  .dl .name, .dl .bar { grid-column: 1 / -1; }
+}
+
+/* ── Notification history ──────────────────────── */
+.notes { list-style: none; padding: 0; margin: 1.2rem 0 0; }
+.note {
+  display: grid; grid-template-columns: 9rem 8rem 1fr 5.5rem; gap: .8rem;
+  align-items: baseline; padding: .55rem .8rem;
+  border-bottom: 1px solid var(--line);
+}
+.note .stamp { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.note .kind { color: var(--muted); font-size: 12.5px; }
+.note .whom { color: var(--muted); font-size: 12.5px; }
+.note .body { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+/* The body is sent with newlines in it — a digest is a list. Preserving them
+   is the difference between reading the push and decoding it. */
+.note .text { color: var(--muted); font-size: 12.5px; white-space: pre-wrap; }
+.note.bad { background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.note .pill.bad { border-color: var(--bad); color: var(--bad); }
+@media (max-width: 720px) {
+  .note { grid-template-columns: 1fr auto; }
+  .note .body { grid-column: 1 / -1; }
+}

@@ -23,21 +23,6 @@ SECRET = "batching-secret"
 
 
 @pytest.fixture
-def pushes(monkeypatch):
-    sent: list[dict] = []
-
-    async def fake_send(title, message, *, tags="tv", priority="default",
-                        click=None, topic=None):
-        sent.append({"title": title, "message": message, "topic": topic})
-        return True
-
-    from app.jobs import notifications
-
-    monkeypatch.setattr(notifications.ntfy, "send", fake_send)
-    return sent
-
-
-@pytest.fixture
 def client(db, admin_token):
     token, user_id = admin_token
     with TestClient(app) as c:

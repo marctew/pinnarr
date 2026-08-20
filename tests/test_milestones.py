@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
 from app.clients.sonarr import SonarrEpisode
 from app.db import session
 from app.episodes import milestone
@@ -123,21 +121,6 @@ def test_an_episode_gaining_a_date_from_nothing_is_not_flagged(db):
 
 
 # ── The announcement ──
-
-
-@pytest.fixture
-def pushes(monkeypatch):
-    sent: list[dict] = []
-
-    async def fake_send(title, message, *, tags="tv", priority="default",
-                        click=None, topic=None):
-        sent.append({"title": title, "message": message, "topic": topic})
-        return True
-
-    from app.jobs import notifications
-
-    monkeypatch.setattr(notifications.ntfy, "send", fake_send)
-    return sent
 
 
 async def test_a_move_is_announced_to_whoever_pinned_it(db, admin_token, pushes):

@@ -8,7 +8,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from app import auth
+from app import auth, notify
 from app.db import session
 from app.repo import (
     adopt_orphaned_pins,
@@ -111,6 +111,32 @@ async def profile(request: Request, saved: str = "", error: str = ""):
     return templates.TemplateResponse(
         request, "profile.html",
         {"flash": error or ("Saved." if saved else ""), "flash_kind": "bad" if error else "ok"},
+    )
+
+
+@router.get("/notifications")
+async def notification_history(request: Request, scope: str = "mine"):
+    """What Pinnarr actually pushed, and whether ntfy took it.
+
+    Without this, a notification that does not arrive has three
+    indistinguishable explanations: the job never fired, ntfy refused it, or
+    the phone ate it. The first two are knowable.
+    """
+    user = request.state.user
+    is_admin = user["role"] == auth.ADMIN
+    everyone = is_admin and scope == "all"
+    with session() as conn:
+        rows = notify.history(conn, None if everyone else int(user["id"]))
+
+    return templates.TemplateResponse(
+        request,
+        "notifications.html",
+        {
+            "rows": rows,
+            "kinds": notify.KINDS,
+            "is_admin": is_admin,
+            "scope": "all" if everyone else "mine",
+        },
     )
 
 

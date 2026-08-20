@@ -78,3 +78,23 @@ def account(db):
 @pytest.fixture
 def admin_token(account):
     return account()
+
+
+@pytest.fixture
+def pushes(monkeypatch):
+    """Capture what would have gone to ntfy.
+
+    Patched at the client, not at app.notify, so the logging layer above it
+    runs for real — a history that only works in production is not a history.
+    """
+    sent: list[dict] = []
+
+    async def fake_send(title, message, *, tags="tv", priority="default",
+                        click=None, topic=None):
+        sent.append({"title": title, "message": message, "topic": topic})
+        return True
+
+    from app import notify
+
+    monkeypatch.setattr(notify.ntfy, "send", fake_send)
+    return sent

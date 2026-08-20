@@ -16,9 +16,11 @@ from app.episodes import decorate
 from app.episodes import parse as parse_dt
 from app.repo import (
     READY_DAYS,
+    STALLED_HOURS,
     discover_announced,
     discover_counts,
     discover_dated,
+    downloads,
     finished_pins,
     gaps,
     latest_retire_batch,
@@ -96,6 +98,32 @@ async def ready(request: Request, fits: str = ""):
             "total_minutes": sum(
                 int(e["runtime"] or 0) for _, episodes in grouped for e in episodes
             ),
+        },
+    )
+
+
+@router.get("/downloads")
+async def downloads_page(request: Request):
+    """What Sonarr is fetching, and what has stopped moving.
+
+    The queue has been synced every minute since long before there was a page
+    for it. All that ever showed was a percentage on whichever calendar row
+    you happened to be reading, so a download stuck at 3% was indistinguishable
+    from one that had only just started.
+    """
+    user_id = int(request.state.user["id"])
+    with session() as conn:
+        rows = downloads(conn, user_id)
+        pinned_total = pinned_count(conn, user_id)
+
+    return templates.TemplateResponse(
+        request,
+        "downloads.html",
+        {
+            "rows": rows,
+            "stalled": sum(1 for r in rows if r["stalled"]),
+            "stalled_hours": STALLED_HOURS,
+            "pinned_total": pinned_total,
         },
     )
 
