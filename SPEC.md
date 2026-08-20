@@ -205,7 +205,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `sonarr_queue` | every minute | What is downloading right now |
 | `notify_pending` | every minute | Push settled arrival batches, one per series |
 | `schedule_changes` | 03:40 nightly | Announce air dates that have moved |
-| `sonarr_tags` | 03:50 nightly | Two-way sync of pins and per-user Sonarr tags |
+| `sonarr_tags` | every 10 min | Two-way sync of pins and per-user Sonarr tags |
 | `season_alerts` | Mon 09:00 | Nudge about unpinned shows that gained a date |
 | `reconcile` | 04:00 nightly | Catch anything the webhook missed; fire late notifications |
 | `housekeeping` | 04:30 nightly | Prune sync_log, expired sessions and stale posters |

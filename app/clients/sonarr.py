@@ -224,13 +224,18 @@ class SonarrClient:
         )
         return int((data or {}).get("id") or 0)
 
-    async def tagged_series(self, tag_id: int) -> set[int]:
-        """Sonarr ids of every series carrying this tag."""
+    async def series_tag_map(self) -> dict[int, set[int]]:
+        """Sonarr series id → the tag ids on it.
+
+        Fetched once per sync rather than once per user: the response is the
+        entire library, and multiplying that by the number of accounts every
+        few minutes would be rude to a service on the same box.
+        """
         data = await self._get("/series")
         return {
-            int(item["id"])
+            int(item["id"]): {int(t) for t in item.get("tags") or []}
             for item in data or []
-            if isinstance(item, dict) and tag_id in (item.get("tags") or [])
+            if isinstance(item, dict) and item.get("id") is not None
         }
 
     async def apply_tag(self, series_ids: list[int], tag_id: int, *, add: bool) -> None:

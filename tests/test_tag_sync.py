@@ -252,3 +252,19 @@ async def test_without_sonarr_it_does_nothing(db, admin_token):
 async def test_an_unreachable_sonarr_is_reported_not_raised(client):
     respx.get(f"{SONARR}/api/v3/tag").mock(side_effect=httpx.ConnectError("down"))
     assert "error" in await sync_tags()
+
+
+@respx.mock
+async def test_the_library_is_fetched_once_however_many_accounts(client, admin_token, account):
+    """The response is the entire library. Multiplying it by the number of
+    accounts every ten minutes would be rude to a service on the same box."""
+    _, admin_id = admin_token
+    account("bob", "user")
+    account("kate", "user")
+    with session() as conn:
+        add(conn, pinned_by=admin_id)
+    mock_sonarr()
+
+    await sync_tags()
+    series_calls = [c for c in respx.calls if c.request.url.path == "/api/v3/series"]
+    assert len(series_calls) == 1

@@ -55,7 +55,12 @@ def _remember(conn: Any, user_id: int, series_id: int, pinned: bool, tagged: boo
     )
 
 
-async def _sync_user(client: SonarrClient, tags: dict[str, int], user: Any) -> str:
+async def _sync_user(
+    client: SonarrClient,
+    tags: dict[str, int],
+    series_tags: dict[int, set[int]],
+    user: Any,
+) -> str:
     label = tag_label(user["username"])
     tag_id = tags.get(label)
 
@@ -75,7 +80,9 @@ async def _sync_user(client: SonarrClient, tags: dict[str, int], user: Any) -> s
         tag_id = await client.create_tag(label)
         tags[label] = tag_id
 
-    tagged_sonarr_ids = await client.tagged_series(tag_id)
+    tagged_sonarr_ids = {
+        sonarr_id for sonarr_id, on_it in series_tags.items() if tag_id in on_it
+    }
 
     with session() as conn:
         # Sonarr ids are what the tag speaks; local ids are what pins do.
@@ -149,6 +156,7 @@ async def sync_tags() -> str:
     client = SonarrClient()
     try:
         tags = await client.tags()
+        series_tags = await client.series_tag_map()
     except UpstreamError as exc:
         return f"error: {exc}"
 
@@ -158,7 +166,7 @@ async def sync_tags() -> str:
     notes = []
     for user in users:
         try:
-            notes.append(await _sync_user(client, tags, user))
+            notes.append(await _sync_user(client, tags, series_tags, user))
         except UpstreamError as exc:
             log.warning("tag sync failed for %s: %s", user["username"], exc)
             notes.append(f"{user['username']}: {exc}")
