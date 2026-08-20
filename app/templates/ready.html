@@ -14,20 +14,21 @@
 
 {% for series, episodes in groups %}
   <section class="ready">
-    <a class="art" href="/series/{{ series['id'] }}">
-      <img src="/poster/{{ series['id'] }}" alt="" loading="lazy" width="60" height="90">
+    <a class="art" href="/series/{{ series['id'] }}" tabindex="-1" aria-hidden="true">
+      <img src="/poster/{{ series['id'] }}" alt="" loading="lazy">
     </a>
     <div class="body">
       <h2>
         <a href="/series/{{ series['id'] }}">{{ series['title'] }}</a>
         <span class="count">{{ episodes|length }} episode{{ '' if episodes|length == 1 else 's' }}</span>
+        {# Ordered newest first, so the first row dates the whole group. #}
+        <span class="recency">{{ episodes[0].arrived }}</span>
       </h2>
       <ul class="eps">
         {% for ep in episodes %}
           <li class="ep state-{{ ep.state }}">
-            <span class="when">{{ ep.arrived }}</span>
-            <span class="who"><span class="show">{{ ep.title or '—' }}</span></span>
             <span class="code">{{ ep.code }}</span>
+            <span class="who"><span class="show">{{ ep.title or '—' }}</span></span>
             <span class="pill">{{ ep.mark }} {{ ep.label }}</span>
           </li>
         {% endfor %}
