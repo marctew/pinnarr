@@ -95,6 +95,9 @@ class Settings(BaseModel):
     #: the season is, so hiding them cannot rely on that flag — and "aired,
     #: not arrived" for a Christmas one-off you never wanted is pure noise.
     show_specials: bool = False
+    #: An episode you have already seen is not news. On by default, since the
+    #: calendar exists to tell you what is coming or missing.
+    hide_watched: bool = True
 
     # ── Outlook thresholds (SPEC §10) ────────────
     hiatus_months: int = 9

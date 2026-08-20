@@ -693,11 +693,13 @@ _EPISODE_SELECT = """
     -- Aliased: e.* already carries a `title` (the episode's), and an
     -- unaliased s.title is silently shadowed by it.
     SELECT e.*, s.title AS series_title, s.id AS series_id, s.outlook, s.poster_url,
-           q.percent AS dl_percent, q.status AS dl_status, q.time_left AS dl_time_left
+           q.percent AS dl_percent, q.status AS dl_status, q.time_left AS dl_time_left,
+           w.watched_at
     FROM episodes e
     JOIN series s ON s.id = e.series_id
     JOIN pins p ON p.series_id = s.id AND p.user_id = ?
     LEFT JOIN download_queue q ON q.sonarr_episode_id = e.sonarr_episode_id
+    LEFT JOIN episode_watches w ON w.episode_id = e.id AND w.user_id = ?
 """
 
 
@@ -709,6 +711,7 @@ def pinned_episodes(
     *,
     include_unmonitored: bool = True,
     include_specials: bool = True,
+    include_watched: bool = True,
 ) -> list[sqlite3.Row]:
     """Pinned episodes airing in a window, chronological.
 
@@ -718,13 +721,15 @@ def pinned_episodes(
     """
     monitored = "" if include_unmonitored else " AND e.monitored = 1"
     monitored += "" if include_specials else " AND e.season > 0"
+    # There is no point telling someone about an episode they have seen.
+    monitored += "" if include_watched else " AND w.watched_at IS NULL"
     return list(
         conn.execute(
             _EPISODE_SELECT
             + " WHERE e.air_date_utc >= ? AND e.air_date_utc < ?"
             + monitored
             + " ORDER BY e.air_date_utc ASC, s.sort_title ASC",
-            (user_id, start, end),
+            (user_id, user_id, start, end),
         )
     )
 
@@ -754,7 +759,7 @@ def overdue_episodes(
             + " AND e.has_file = 0 AND e.in_plex = 0 AND e.monitored = 1"
             + ("" if include_specials else " AND e.season > 0")
             + " ORDER BY e.air_date_utc DESC",
-            (user_id, since, now),
+            (user_id, user_id, since, now),
         )
     )
 

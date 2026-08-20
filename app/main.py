@@ -909,6 +909,7 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
             window_end.isoformat(),
             include_unmonitored=get_settings().show_unmonitored,
             include_specials=get_settings().show_specials,
+            include_watched=not get_settings().hide_watched,
         )
         overdue = overdue_episodes(
             conn,
@@ -1028,6 +1029,7 @@ async def calendar_live(request: Request) -> JSONResponse:
             (today + timedelta(days=LOOKAHEAD_DAYS)).isoformat(),
             include_unmonitored=settings.show_unmonitored,
             include_specials=settings.show_specials,
+            include_watched=not settings.hide_watched,
         )
 
     return JSONResponse(
@@ -1063,6 +1065,7 @@ async def calendar_json(
             finish,
             include_unmonitored=get_settings().show_unmonitored,
             include_specials=get_settings().show_specials,
+            include_watched=not get_settings().hide_watched,
         )
 
     return JSONResponse(

@@ -153,6 +153,17 @@
       Show episodes Sonarr isn't monitoring
     </label>
     <label class="check">
+      <input type="hidden" name="hide_watched" value="false">
+      <input type="checkbox" name="hide_watched" value="true"
+             {{ 'checked' if s.hide_watched }}>
+      Hide episodes you've already watched
+    </label>
+    <p class="hint">On by default. The calendar is for what's coming or missing;
+      an episode you've seen is neither. Needs a Plex token in
+      <a href="/profile">your account</a> for Pinnarr to know what you've
+      watched.</p>
+
+    <label class="check">
       <input type="hidden" name="show_specials" value="false">
       <input type="checkbox" name="show_specials" value="true"
              {{ 'checked' if s.show_specials }}>

@@ -405,3 +405,84 @@ def test_ordinary_seasons_are_untouched(client):
     with session() as conn:
         seed(conn, air_offset_days=3)
     assert "Cold Harbor" in client.get("/").text
+
+
+# ── Watched episodes on the calendar ──
+
+
+def seed_watched(conn, *, user_id=1, days=-6, watched=True):
+    """Something that aired, is in Plex, and has been seen."""
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO series (title, sort_title, plex_rating_key, pinned, outlook, "
+        "created_at, updated_at) VALUES ('The Undeclared War', 'undeclared', '55', 1, "
+        "'ended', ?, ?)",
+        (now, now),
+    )
+    sid = int(cur.lastrowid)
+    air = (datetime.now(UTC) + timedelta(days=days)).isoformat()
+    cur = conn.execute(
+        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+        "has_file, in_plex, monitored, plex_rating_key, updated_at) "
+        "VALUES (?, 2, 5, 'Episode 5', ?, 1, 1, 1, '901', ?)",
+        (sid, air, now),
+    )
+    eid = int(cur.lastrowid)
+    conn.execute(
+        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+        (user_id, sid, now),
+    )
+    if watched:
+        conn.execute(
+            "INSERT INTO episode_watches (user_id, episode_id, watched_at) "
+            "VALUES (?, ?, ?)", (user_id, eid, now),
+        )
+    return sid
+
+
+def test_watched_episodes_are_hidden_by_default(client):
+    """There is no point telling someone about an episode they have seen."""
+    with session() as conn:
+        seed_watched(conn)
+    assert "The Undeclared War" not in client.get("/").text
+
+
+def test_turning_the_setting_off_shows_them_marked(client):
+    from app.config import save_settings
+
+    with session() as conn:
+        seed_watched(conn)
+    save_settings({"hide_watched": "false"})
+    body = client.get("/").text
+    assert "The Undeclared War" in body
+    assert "✓ watched" in body
+
+
+def test_an_unwatched_episode_is_unaffected(client):
+    with session() as conn:
+        seed_watched(conn, watched=False)
+    assert "The Undeclared War" in client.get("/").text
+
+
+def test_the_pill_links_into_plex(client):
+    from app.config import save_settings
+    from app.db import set_setting
+
+    with session() as conn:
+        seed_watched(conn, watched=False)
+    save_settings({"plex_url": "http://plex.lan:32400"})
+    set_setting("plex_machine_id", "abc123")
+    body = client.get("/").text
+    assert "901" in body
+    assert "abc123" in body
+
+
+def test_the_json_feed_honours_the_setting_too(client):
+    from app.config import save_settings
+
+    with session() as conn:
+        seed_watched(conn, days=3)
+    assert client.get("/api/calendar").json()["episodes"] == []
+
+    save_settings({"hide_watched": "false"})
+    assert len(client.get("/api/calendar").json()["episodes"]) == 1
