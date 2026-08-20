@@ -873,12 +873,14 @@ def _calendar_context(user_id: int, month: str | None) -> dict[str, Any]:
             window_start.isoformat(),
             window_end.isoformat(),
             include_unmonitored=get_settings().show_unmonitored,
+            include_specials=get_settings().show_specials,
         )
         overdue = overdue_episodes(
             conn,
             user_id,
             (today - timedelta(days=OVERDUE_DAYS)).isoformat(),
             now.isoformat(),
+            include_specials=get_settings().show_specials,
         )
         announced = pinned_by_outlook(conn, user_id, ("announced",))
         filming = pinned_by_outlook(conn, user_id, ("in_production",))
@@ -988,6 +990,7 @@ async def calendar_json(
             begin,
             finish,
             include_unmonitored=get_settings().show_unmonitored,
+            include_specials=get_settings().show_specials,
         )
 
     return JSONResponse(

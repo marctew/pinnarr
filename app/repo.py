@@ -697,6 +697,7 @@ def pinned_episodes(
     end: str,
     *,
     include_unmonitored: bool = True,
+    include_specials: bool = True,
 ) -> list[sqlite3.Row]:
     """Pinned episodes airing in a window, chronological.
 
@@ -705,6 +706,7 @@ def pinned_episodes(
     rather than waiting for a refetch.
     """
     monitored = "" if include_unmonitored else " AND e.monitored = 1"
+    monitored += "" if include_specials else " AND e.season > 0"
     return list(
         conn.execute(
             _EPISODE_SELECT
@@ -717,7 +719,12 @@ def pinned_episodes(
 
 
 def overdue_episodes(
-    conn: sqlite3.Connection, user_id: int, since: str, now: str
+    conn: sqlite3.Connection,
+    user_id: int,
+    since: str,
+    now: str,
+    *,
+    include_specials: bool = True,
 ) -> list[sqlite3.Row]:
     """Aired, not in Plex, not too long ago to still care about.
 
@@ -734,6 +741,7 @@ def overdue_episodes(
             _EPISODE_SELECT
             + " WHERE e.air_date_utc >= ? AND e.air_date_utc < ?"
             + " AND e.has_file = 0 AND e.in_plex = 0 AND e.monitored = 1"
+            + ("" if include_specials else " AND e.season > 0")
             + " ORDER BY e.air_date_utc DESC",
             (user_id, since, now),
         )

@@ -232,6 +232,12 @@ precisely the thing you decided against. They are hidden from the calendar by
 default (`show_unmonitored` in Settings) and never appear under "aired, not
 arrived" even when shown.
 
+**Specials get their own switch.** Sonarr does not reliably mark season 0
+episodes unmonitored even when you have unmonitored the season, so the flag
+above cannot hide them — `show_specials` is a separate setting, also off by
+default. The two are independent: an unmonitored special needs both, a
+monitored one needs only the specials switch.
+
 The `missing` state is the one no existing tool surfaces well. "Aired four days ago and still isn't here" is exactly the thing you want to know, and Sonarr buries it under Wanted.
 
 ## 10. Season outlook

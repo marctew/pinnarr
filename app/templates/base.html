@@ -261,6 +261,9 @@
   .ep.state-downloading { border-left-color: var(--accent); }
   .ep.state-downloading .pill { color: var(--accent); border-color: var(--accent); }
   .cell-show.state-downloading { border-left-color: var(--accent); }
+  /* Four children, not five: the base grid would drop the code into the
+     3.4rem time slot and let the buttons overflow it. */
+  .ep.overdue { grid-template-columns: 36px 1fr 5.5rem auto; }
   .ep .fixit { display: flex; gap: .35rem; justify-content: flex-end; }
   .ep .why { display: block; font-size: 12px; color: var(--muted); margin-top: .15rem; }
   .ep .why.bad { color: var(--bad); }

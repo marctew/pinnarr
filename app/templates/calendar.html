@@ -60,7 +60,7 @@
   <h2 class="section warn">⚠ Aired, not arrived</h2>
   <ul class="eps flat">
     {% for ep in overdue %}
-      <li class="ep state-{{ ep.state }}">
+      <li class="ep overdue state-{{ ep.state }}">
         <a class="art" href="/series/{{ ep.series_id }}" tabindex="-1" aria-hidden="true">
           <img src="/poster/{{ ep.series_id }}" alt="" loading="lazy" width="36" height="54">
         </a>
@@ -69,7 +69,7 @@
           {% if ep.title %}<span class="eptitle">{{ ep.title }}</span>{% endif %}
           <span class="why" id="why-{{ ep.id }}"></span>
         </span>
-        <span class="time">{{ ep.code }}</span>
+        <span class="code">{{ ep.code }}</span>
         <span class="fixit">
           <button type="button" class="tiny" onclick="explain({{ ep.id }})">Why?</button>
           <button type="button" class="tiny" onclick="research({{ ep.id }})">Search</button>

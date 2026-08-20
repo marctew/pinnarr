@@ -84,6 +84,10 @@ class Settings(BaseModel):
     #: wanted, seasons you skipped. They are real broadcasts, so they are
     #: stored either way; this decides whether they clutter the calendar.
     show_unmonitored: bool = False
+    #: Season 0. Sonarr does not reliably mark specials unmonitored even when
+    #: the season is, so hiding them cannot rely on that flag — and "aired,
+    #: not arrived" for a Christmas one-off you never wanted is pure noise.
+    show_specials: bool = False
 
     # ── Outlook thresholds (SPEC §10) ────────────
     hiatus_months: int = 9

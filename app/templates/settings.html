@@ -132,6 +132,17 @@
              {{ 'checked' if s.show_unmonitored }}>
       Show episodes Sonarr isn't monitoring
     </label>
+    <label class="check">
+      <input type="hidden" name="show_specials" value="false">
+      <input type="checkbox" name="show_specials" value="true"
+             {{ 'checked' if s.show_specials }}>
+      Show specials (season 0)
+    </label>
+    <p class="hint">Sonarr doesn't reliably mark specials unmonitored even when
+      you've unmonitored the season, so the setting above can't hide them on
+      its own. Off by default: "aired, not arrived" for a Christmas one-off you
+      never wanted is pure noise.</p>
+
     <p class="hint">Specials you never wanted and seasons you skipped still have
       air dates, so Sonarr keeps rows for them. Off by default — they are
       broadcasts you have already decided against. They never appear under

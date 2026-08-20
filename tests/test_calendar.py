@@ -309,7 +309,7 @@ def test_turning_the_setting_on_shows_them(client):
 
     with session() as conn:
         seed_unmonitored(conn)
-    save_settings({"show_unmonitored": "true"})
+    save_settings({"show_unmonitored": "true", "show_specials": "true"})
     body = client.get("/").text
     assert "My Ultimate Episode" in body
     assert "not wanted" in body
@@ -321,7 +321,7 @@ def test_they_never_appear_under_aired_not_arrived(client):
 
     with session() as conn:
         seed_unmonitored(conn)
-    save_settings({"show_unmonitored": "true"})
+    save_settings({"show_unmonitored": "true", "show_specials": "true"})
     assert "Aired, not arrived" not in client.get("/").text
 
 
@@ -332,5 +332,76 @@ def test_the_json_feed_honours_the_setting(client):
         seed_unmonitored(conn, days=3)
     assert client.get("/api/calendar").json()["episodes"] == []
 
-    save_settings({"show_unmonitored": "true"})
+    save_settings({"show_unmonitored": "true", "show_specials": "true"})
     assert len(client.get("/api/calendar").json()["episodes"]) == 1
+
+
+# ── Specials ──
+
+
+def seed_special(conn, *, user_id=1, days=-5, monitored=1):
+    """A Christmas one-off you never wanted. Sonarr does not reliably mark
+    these unmonitored even when the season is, so the monitored toggle cannot
+    hide them on its own."""
+    now = utcnow()
+    cur = conn.execute(
+        "INSERT INTO series (title, sort_title, pinned, outlook, created_at, updated_at) "
+        "VALUES ('Taskmaster', 'taskmaster', 1, 'dated', ?, ?)",
+        (now, now),
+    )
+    sid = int(cur.lastrowid)
+    air = datetime.now(UTC) + timedelta(days=days)
+    conn.execute(
+        "INSERT INTO episodes (series_id, season, episode, title, air_date_utc, "
+        "has_file, in_plex, monitored, updated_at) "
+        "VALUES (?, 0, 304, 'My Ultimate Episode', ?, 0, 0, ?, ?)",
+        (sid, air.isoformat(), monitored, now),
+    )
+    conn.execute(
+        "INSERT INTO pins (user_id, series_id, pinned_at) VALUES (?, ?, ?)",
+        (user_id, sid, now),
+    )
+    return sid
+
+
+def test_a_monitored_special_is_still_hidden_by_default(client):
+    """This is the case the monitored toggle could not reach: Sonarr says
+    monitored, you say you never wanted it."""
+    with session() as conn:
+        seed_special(conn, monitored=1)
+    assert "My Ultimate Episode" not in client.get("/").text
+
+
+def test_a_special_never_reaches_aired_not_arrived(client):
+    with session() as conn:
+        seed_special(conn, monitored=1, days=-5)
+    assert "Aired, not arrived" not in client.get("/").text
+
+
+def test_turning_specials_on_shows_them(client):
+    from app.config import save_settings
+
+    with session() as conn:
+        seed_special(conn, monitored=1)
+    save_settings({"show_specials": "true"})
+    assert "My Ultimate Episode" in client.get("/").text
+
+
+def test_the_two_toggles_are_independent(client):
+    """An unmonitored special needs both; a monitored one needs only the
+    specials switch."""
+    from app.config import save_settings
+
+    with session() as conn:
+        seed_special(conn, monitored=0)
+    save_settings({"show_specials": "true"})
+    assert "My Ultimate Episode" not in client.get("/").text
+
+    save_settings({"show_unmonitored": "true"})
+    assert "My Ultimate Episode" in client.get("/").text
+
+
+def test_ordinary_seasons_are_untouched(client):
+    with session() as conn:
+        seed(conn, air_offset_days=3)
+    assert "Cold Harbor" in client.get("/").text
