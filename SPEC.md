@@ -199,7 +199,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `plex_library` | 03:00 nightly | Walk TV sections, upsert series, resolve GUIDs, cache posters, populate genres |
 | `sonarr_series` | 03:10 nightly | Map `sonarr_id`, status, `nextAiring`, seasons array → `latest_season` |
 | `sonarr_calendar` | every 2h | Pull −7d…+60d window for all series; filter to pinned at render time |
-| `tautulli_history` | 03:20 nightly | Update `last_watched_at` per series |
+| `tautulli_history` | 03:20 nightly | Watch state per series *and per episode* |
 | `tmdb_status` | 03:30 nightly | Production status for pinned series; recompute `outlook` for all |
 | `plex_availability` | hourly | For pinned series only: confirm recent episodes are present in Plex |
 | `sonarr_queue` | every minute | What is downloading right now |
@@ -207,6 +207,7 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `schedule_changes` | 03:40 nightly | Announce air dates that have moved |
 | `sonarr_tags` | every 10 min | Two-way sync of pins and per-user Sonarr tags |
 | `plex_watchlist` | every 10 min | Two-way sync of pins and each user's Plex Watchlist |
+| `pinned_guides` | 03:15 nightly | Full episode list for every pinned series |
 | `suggestions` | 03:35 nightly | TMDB recommendations for pinned series |
 | `season_alerts` | Mon 09:00 | Nudge about unpinned shows that gained a date |
 | `reconcile` | 04:00 nightly | Catch anything the webhook missed; fire late notifications |

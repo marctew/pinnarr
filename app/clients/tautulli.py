@@ -25,6 +25,16 @@ class WatchRecord:
     watched_at: str | None
 
 
+@dataclass
+class EpisodePlay:
+    """One watched episode, keyed the way Plex keys things."""
+
+    grandparent_rating_key: str
+    season: int
+    episode: int
+    watched_at: str
+
+
 class TautulliClient:
     service = "tautulli"
 
@@ -90,6 +100,44 @@ class TautulliClient:
                 )
             )
         return records
+
+    async def watched_episodes(self, length: int = 2000) -> list[EpisodePlay]:
+        """Episodes actually finished, not merely started.
+
+        watched_status is 1 for a completed play and 0.5 for a partial. A
+        show you gave up on twenty minutes in should stay on the list.
+        """
+        data = await self._cmd(
+            "get_history", media_type="episode", length=length, order_column="date"
+        )
+        rows = (data or {}).get("data") or []
+
+        plays: list[EpisodePlay] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                if float(row.get("watched_status") or 0) < 1:
+                    continue
+                key = str(row.get("grandparent_rating_key") or "")
+                season = int(row.get("parent_media_index"))
+                episode = int(row.get("media_index"))
+                stamp = int(row.get("stopped") or row.get("date") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not key or not stamp:
+                continue
+            plays.append(
+                EpisodePlay(
+                    grandparent_rating_key=key,
+                    season=season,
+                    episode=episode,
+                    watched_at=datetime.fromtimestamp(stamp, tz=UTC)
+                    .replace(microsecond=0)
+                    .isoformat(),
+                )
+            )
+        return plays
 
     async def last_watched_by_show(self, length: int = 2000) -> dict[str, str]:
         """{series plex rating_key: newest watched_at}. History is desc, so first wins."""

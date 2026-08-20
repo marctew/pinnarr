@@ -260,22 +260,26 @@ def replace_genres(conn: sqlite3.Connection, series_id: int, names: list[str]) -
 ARRIVAL_GRACE_HOURS = 48
 
 
-def _plausibly_just_arrived(ep: SonarrEpisode) -> bool:
-    """Whether a first sighting can honestly be called an arrival.
+def arrival_is_plausible(air_date_utc: str | None) -> bool:
+    """Whether seeing a file now can honestly be called an arrival.
 
-    A back catalogue we have simply never looked at before is not news. Only
-    something that aired in the last couple of days could plausibly have
-    landed in the window since we last synced.
+    A back catalogue nobody had looked at before is not news. Only something
+    that aired in the last couple of days could plausibly have landed in the
+    window since we last checked.
     """
-    if not ep.air_date_utc:
+    if not air_date_utc:
         return False
     try:
-        air = datetime.fromisoformat(ep.air_date_utc)
+        air = datetime.fromisoformat(air_date_utc)
     except ValueError:
         return False
     if air.tzinfo is None:
         air = air.replace(tzinfo=UTC)
     return air >= datetime.now(UTC) - timedelta(hours=ARRIVAL_GRACE_HOURS)
+
+
+def _plausibly_just_arrived(ep: SonarrEpisode) -> bool:
+    return arrival_is_plausible(ep.air_date_utc)
 
 
 def _date_moved(before: str | None, after: str | None) -> bool:
@@ -936,6 +940,9 @@ def ready_to_watch(
     Grouped by series because that is the unit of a viewing session — four
     episodes of one show is one decision, not four.
 
+    Anything already watched is gone: a list that never shrinks is an
+    inventory, not a shortlist.
+
     Recency falls back to the air date when we never watched the file appear.
     arrived_at only exists for episodes Pinnarr saw arrive, so insisting on it
     would hide everything already in Plex before it was installed — which is
@@ -953,6 +960,7 @@ def ready_to_watch(
             WHERE (e.has_file = 1 OR e.in_plex = 1)
               AND COALESCE(e.arrived_at, e.air_date_utc) >= ?
               AND COALESCE(e.arrived_at, e.air_date_utc) <= ?
+              AND e.watched_at IS NULL
               AND (? IS NULL OR (e.runtime IS NOT NULL AND e.runtime <= ?))
             ORDER BY recency DESC, e.season ASC, e.episode ASC
             """,
@@ -1178,3 +1186,18 @@ def gaps(conn: sqlite3.Connection, user_id: int) -> list[tuple[sqlite3.Row, list
             for r in conn.execute(f"SELECT * FROM series WHERE id IN ({marks})", order)
         }
     return [(series_rows[sid], grouped[sid]) for sid in order if sid in series_rows]
+
+
+
+def mark_watched(conn: sqlite3.Connection, plex_rating_key: str, season: int,
+                 episode: int, watched_at: str) -> bool:
+    """Record that an episode has been seen. Earliest play wins."""
+    cur = conn.execute(
+        """
+        UPDATE episodes SET watched_at = MIN(COALESCE(watched_at, ?), ?), updated_at = ?
+        WHERE season = ? AND episode = ?
+          AND series_id = (SELECT id FROM series WHERE plex_rating_key = ?)
+        """,
+        (watched_at, watched_at, utcnow(), season, episode, plex_rating_key),
+    )
+    return cur.rowcount > 0

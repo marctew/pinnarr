@@ -15,6 +15,7 @@ from app.clients.plex import PlexClient
 from app.config import get_settings
 from app.db import session, utcnow
 from app.jobs import tracked
+from app.repo import arrival_is_plausible
 
 log = logging.getLogger(__name__)
 
@@ -48,17 +49,27 @@ async def sync_availability() -> str:
         checked += 1
         with session() as conn:
             episodes = conn.execute(
-                "SELECT id, season, episode, in_plex FROM episodes WHERE series_id = ?",
+                "SELECT id, season, episode, in_plex, air_date_utc FROM episodes "
+                "WHERE series_id = ?",
                 (series["id"],),
             ).fetchall()
             for ep in episodes:
                 is_present = (ep["season"], ep["episode"]) in present
                 if is_present == bool(ep["in_plex"]):
                     continue
+                # Only a recent episode appearing counts as an arrival. Seeing
+                # a 2020 back catalogue for the first time is Pinnarr looking,
+                # not the episode landing — the same fault fixed in
+                # upsert_episode and originally missed here.
+                stamp = (
+                    utcnow()
+                    if is_present and arrival_is_plausible(ep["air_date_utc"])
+                    else None
+                )
                 conn.execute(
                     "UPDATE episodes SET in_plex = ?, arrived_at = COALESCE(arrived_at, ?), "
                     "updated_at = ? WHERE id = ?",
-                    (int(is_present), utcnow() if is_present else None, utcnow(), ep["id"]),
+                    (int(is_present), stamp, utcnow(), ep["id"]),
                 )
                 if is_present:
                     newly_present += 1
