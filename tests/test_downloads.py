@@ -218,3 +218,23 @@ async def test_a_returning_item_starts_its_clock_again(client, sonarr_queue):
             "SELECT first_seen_at, progress_at FROM download_queue"
         ).fetchone()
     assert row["first_seen_at"] == row["progress_at"]
+
+
+async def test_a_row_from_before_the_columns_existed_gets_a_clock(client, sonarr_queue):
+    """After the upgrade, existing queue rows have no progress stamp. Leaving
+    it null would make a genuinely stuck download permanently unflaggable:
+    the only thing that would stamp it is the movement it will never make."""
+    with session() as conn:
+        conn.execute(
+            "INSERT INTO download_queue (sonarr_episode_id, status, percent, updated_at) "
+            "VALUES (555, 'downloading', 42.0, ?)", (utcnow(),),
+        )
+    sonarr_queue((555, 42.0))
+    await run_sync(client)
+
+    with session() as conn:
+        row = conn.execute(
+            "SELECT first_seen_at, progress_at FROM download_queue"
+        ).fetchone()
+    assert row["progress_at"] is not None
+    assert row["first_seen_at"] is not None

@@ -45,7 +45,18 @@ async def sync_queue() -> str:
             # Only a change in percentage counts as progress. Sonarr rewrites
             # the row every poll, so updated_at moves whether or not the
             # download does.
-            moved = previous is None or float(previous["percent"]) != float(item.percent)
+            #
+            # A row carried over from before this column existed has no stamp
+            # at all. Treating that as "moved just now" starts its clock here
+            # rather than leaving it permanently unjudgeable — the alternative
+            # is a genuinely stuck download that can never be flagged, because
+            # the only thing that would stamp it is the movement it will
+            # never make.
+            moved = (
+                previous is None
+                or previous["progress_at"] is None
+                or float(previous["percent"]) != float(item.percent)
+            )
             conn.execute(
                 """
                 INSERT INTO download_queue (sonarr_episode_id, status, percent,
@@ -54,11 +65,16 @@ async def sync_queue() -> str:
                 ON CONFLICT(sonarr_episode_id) DO UPDATE SET
                     status = excluded.status, percent = excluded.percent,
                     time_left = excluded.time_left, message = excluded.message,
+                    -- Kept if we have one, filled if we do not: a row that
+                    -- predates the column would otherwise stay blank forever.
+                    first_seen_at = COALESCE(
+                        download_queue.first_seen_at, excluded.first_seen_at
+                    ),
                     progress_at = excluded.progress_at,
                     updated_at = excluded.updated_at
                 """,
                 (key, item.status, item.percent, item.time_left, item.message,
-                 previous["first_seen_at"] if previous else now,
+                 (previous["first_seen_at"] if previous else None) or now,
                  now if moved else (previous["progress_at"] if previous else now),
                  now),
             )
