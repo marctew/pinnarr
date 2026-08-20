@@ -327,3 +327,34 @@ def test_tmdb_having_no_scores_is_distinguished_from_a_failure(client, admin_tok
         sid = add(conn, "Silo", tmdb_id=95396, sonarr_id=7)
 
     assert "no scores" in client.post(f"/api/series/{sid}/episodes").json()["ratings"]
+
+
+def test_the_progress_fill_is_not_pushed_off_the_left_edge(client, admin_token):
+    """`have` named both the text beside the bar and the bar's own fill, so
+    the text rule's margin-left: auto shoved the fill rightwards."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = add(conn, "Silo", pinned_by=user_id, sonarr_id=7)
+        episode(conn, sid, 1, has_file=1, in_plex=1)
+    body = client.get(f"/series/{sid}").text
+    assert 'class="seg seg-owned"' in body
+    assert 'class="have" style=' not in body
+
+
+def test_a_full_season_fills_the_bar(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = add(conn, "Silo", pinned_by=user_id, sonarr_id=7)
+        episode(conn, sid, 1, has_file=1, in_plex=1)
+        episode(conn, sid, 2, has_file=1, in_plex=1)
+    body = client.get(f"/series/{sid}").text
+    assert "width: 100.0%" in body
+
+
+def test_the_track_is_rendered_even_with_nothing_to_show(client, admin_token):
+    """The column has to exist or the rows above and below it misalign."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = add(conn, "Silo", pinned_by=user_id, sonarr_id=7)
+        episode(conn, sid, 1)
+    assert 'class="progress"' in client.get(f"/series/{sid}").text

@@ -362,16 +362,23 @@
     border: 1px solid var(--line); border-radius: 8px; margin-bottom: .5rem;
     background: var(--panel);
   }
+  /* A grid, not a flex row: "6 episodes" and "12 episodes" are different
+     widths, and in a flex row that shifts every bar after them. */
   .season > summary {
     cursor: pointer; padding: .55rem .8rem; font-size: 14px; font-weight: 600;
-    display: flex; align-items: baseline; gap: .8rem;
+    display: grid; grid-template-columns: 1fr 6.5rem 140px 7rem; gap: .8rem;
+    align-items: center;
   }
   .season > summary .count { font-weight: 400; font-size: 12.5px; color: var(--muted); }
   .season > summary .have {
-    margin-left: auto; font-weight: 400; font-size: 12px; color: var(--ok);
+    font-weight: 400; font-size: 12px; color: var(--ok); text-align: right;
   }
   .season .eps { padding: 0 .5rem .5rem; }
-  .season > summary .heat { display: flex; gap: 1px; margin-left: .6rem; }
+  /* Its own row, so a six-episode season and a twenty-episode one do not
+     drag the columns above them to different widths. */
+  .season > summary .heat {
+    grid-column: 1 / -1; display: flex; gap: 1px; margin-top: .1rem;
+  }
   .season > summary .heat .tick { width: 5px; height: 12px; border-radius: 1px;
                                   background: var(--line); }
   /* TMDB scores cluster between 6 and 9, so the ramp is tight where it counts. */
@@ -384,12 +391,16 @@
   .heat .tick.r9, .heat .tick.r10 { background: #35d08a; }
   .ep .code .score { color: var(--muted); font-size: 11px; margin-left: .3rem; }
   .season > summary .progress {
-    flex: 0 1 140px; display: flex; height: 5px; border-radius: 3px;
-    overflow: hidden; background: var(--line); margin-left: auto;
+    position: relative; height: 5px; border-radius: 3px;
+    overflow: hidden; background: var(--line);
   }
-  .season > summary .progress .have { background: var(--ok); }
-  .season > summary .progress .aired { background: var(--warn); }
-  .season > summary .have { margin-left: .6rem; }
+  /* seg-, not .have: that class also names the text beside the bar, and its
+     margin-left: auto was pushing the fill away from the left edge. */
+  .season > summary .progress .seg {
+    position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px;
+  }
+  .season > summary .progress .seg-aired { background: var(--warn); }
+  .season > summary .progress .seg-owned { background: var(--ok); }
   .fits { display: flex; align-items: center; gap: .4rem; margin: -.5rem 0 1.25rem; }
   .fits .chip { text-decoration: none; color: var(--muted); font-size: 12.5px; }
   .fits .chip.on { border-color: var(--accent); color: var(--accent); }
@@ -466,6 +477,8 @@
     .ep .code { grid-column: 3; }
     .ep .pill { grid-column: 2 / 4; justify-self: start; width: auto; }
     .month td { height: 58px; font-size: 11px; }
+    .season > summary { grid-template-columns: 1fr auto; }
+    .season > summary .progress { display: none; }
     .library { grid-template-columns: 1fr; }
     .rail { position: static; max-height: none; }
   }

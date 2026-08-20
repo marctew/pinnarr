@@ -73,12 +73,14 @@
         {% if number == 0 %}Specials{% else %}Season {{ number }}{% endif %}
         {% set bar = progress.get(number, {'total': 0, 'aired': 0, 'have': 0}) %}
         <span class="count">{{ eps|length }} episode{{ '' if eps|length == 1 else 's' }}</span>
-        {% if bar.total %}
-          <span class="progress" title="{{ bar.have }} in Plex, {{ bar.aired }} aired, {{ bar.total }} known">
-            <span class="have" style="width: {{ (bar.have / bar.total * 100)|round(1) }}%"></span>
-            <span class="aired" style="width: {{ ((bar.aired - bar.have) / bar.total * 100)|round(1) }}%"></span>
-          </span>
-        {% endif %}
+        <span class="progress" title="{{ bar.have }} in Plex, {{ bar.aired }} aired, {{ bar.total }} known">
+          {% if bar.total %}
+            {# Both anchored left and stacked, so no arithmetic decides where
+               the fill starts and a rounding error cannot leave a gap. #}
+            <span class="seg seg-aired" style="width: {{ (bar.aired / bar.total * 100)|round(1) }}%"></span>
+            <span class="seg seg-owned" style="width: {{ (bar.have / bar.total * 100)|round(1) }}%"></span>
+          {% endif %}
+        </span>
         <span class="have">{{ bar.have }}/{{ bar.total }} in Plex</span>
         {% set rated = eps|selectattr('rating')|list %}
         {% if rated %}
