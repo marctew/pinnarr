@@ -200,7 +200,9 @@ A few thousand rows total. SQLite in WAL mode is comfortably enough — no Postg
 | `tautulli_history` | 03:20 nightly | Update `last_watched_at` per series |
 | `tmdb_status` | 03:30 nightly | Production status for pinned series; recompute `outlook` for all |
 | `plex_availability` | hourly | For pinned series only: confirm recent episodes are present in Plex |
+| `notify_pending` | every minute | Push settled arrival batches, one per series |
 | `reconcile` | 04:00 nightly | Catch anything the webhook missed; fire late notifications |
+| `housekeeping` | 04:30 nightly | Prune sync_log, expired sessions and stale posters |
 
 Pulling the calendar for *all* series rather than per-pinned-series is deliberate: one request beats fifteen, and it means unpinning and repinning is instant with no refetch.
 
@@ -306,7 +308,10 @@ GET   /settings                  Admin panel — all configuration
 POST  /settings                  Save the panel; reschedules if timing changed
 POST  /api/settings/test/{svc}   Connection test against saved settings
 GET   /library                   Poster grid; facets per §11 as query params
+GET   /ready                     Pinned episodes that have arrived, grouped
 GET   /discover                  Unpinned series with something coming
+GET   /settings/backup           Download and restore (admin)
+GET   /api/backup                The three things that cannot be re-synced
 POST  /api/series/{id}/episodes  Pull the full episode list from Sonarr
 POST  /api/series/{id}/pin       Toggle, returns {pinned, pinned_total} as JSON
 POST  /api/series/{id}/unpin

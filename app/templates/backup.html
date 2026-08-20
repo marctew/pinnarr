@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Backup · Pinnarr{% endblock %}
+{% block nav_settings %}active{% endblock %}
+{% block content %}
+<h1>Backup</h1>
+<p class="lede">Series, episodes and outlooks all rebuild from Plex and Sonarr
+  in a few minutes. Accounts, settings and pins exist nowhere else.
+  <a href="/settings">Back to settings</a>.</p>
+
+{% if flash %}<p class="flash {{ flash_kind }}">{{ flash }}</p>{% endif %}
+
+<fieldset>
+  <legend><h2>Download</h2></legend>
+  <p class="hint">Contains your API keys, tokens and password hashes — a backup
+    without them would fail exactly when you needed it. Keep the file somewhere
+    you would keep a password.</p>
+  <p class="actions"><a class="ext" href="/api/backup">Download backup</a></p>
+</fieldset>
+
+<form method="post" action="/settings/backup" enctype="multipart/form-data">
+  <fieldset>
+    <legend><h2>Restore</h2></legend>
+    <p class="hint">Additive: existing accounts and pins are left alone and
+      missing ones are added, so a restore can't wipe what's already here.
+      Settings are overwritten, since half a configuration isn't one.</p>
+    <p class="hint">Pins are matched by TVDB id, so restore into a library that
+      has already synced — anything not found yet is reported rather than
+      dropped.</p>
+    <label>Backup file
+      <input type="file" name="file" accept="application/json,.json" required>
+    </label>
+  </fieldset>
+  <div class="bar"><button type="submit" class="primary">Restore</button></div>
+</form>
+{% endblock %}

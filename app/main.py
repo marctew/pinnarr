@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from calendar import monthrange
 from collections import defaultdict
@@ -21,7 +22,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from app import __version__, auth, labels
+from app import __version__, auth, backup, labels
 from app import webhook as hooks
 from app.clients.http import UpstreamError
 from app.clients.sonarr import SonarrClient
@@ -33,7 +34,7 @@ from app.config import (
     get_settings,
     save_settings,
 )
-from app.db import last_runs, migrate, session
+from app.db import last_runs, migrate, session, utcnow
 from app.episodes import decorate, episode_state
 from app.episodes import parse as parse_dt
 from app.health import test_service
@@ -151,7 +152,10 @@ PUBLIC_PATHS = frozenset({"/login", "/setup", "/healthz", "/hooks/sonarr"})
 
 #: Admin-only prefixes. Syncing rewrites data everyone sees, so it belongs
 #: here rather than being reachable by any signed-in account.
-ADMIN_PREFIXES = ("/settings", "/api/sync")
+#: /api/backup is here because the export carries every API key and
+#: password hash in the install. It is the single most sensitive
+#: response the app can produce.
+ADMIN_PREFIXES = ("/settings", "/api/sync", "/api/backup")
 
 
 def current_user(request: Request):
@@ -468,6 +472,59 @@ async def series_notify(request: Request, series_id: int) -> JSONResponse:
             raise HTTPException(status_code=404, detail="you have not pinned that series")
         set_notify(conn, user_id, series_id, wanted)
     return JSONResponse({"id": series_id, "notify": wanted})
+
+
+@app.get("/settings/backup")
+async def backup_page(request: Request, restored: str = "", error: str = ""):
+    return templates.TemplateResponse(
+        request, "backup.html",
+        {"flash": error or restored, "flash_kind": "bad" if error else "ok"},
+    )
+
+
+@app.get("/api/backup")
+async def backup_download() -> Response:
+    """The three things that cannot be rebuilt from Plex and Sonarr.
+
+    Contains secrets and password hashes by design — a backup that omits
+    them is one that fails at the worst possible moment.
+    """
+    payload = json.dumps(backup.export(), indent=2)
+    stamp = utcnow()[:10]
+    return Response(
+        payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="pinnarr-backup-{stamp}.json"'},
+    )
+
+
+@app.post("/settings/backup")
+async def backup_restore(request: Request) -> RedirectResponse:
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or not hasattr(upload, "read"):
+        return RedirectResponse(
+            "/settings/backup?error=" + quote("Choose a backup file first."), status_code=303
+        )
+
+    try:
+        payload = json.loads(await upload.read())
+        report = backup.restore(payload)
+    except (ValueError, UnicodeDecodeError) as exc:
+        return RedirectResponse(
+            f"/settings/backup?error={quote(f'Could not read that file: {exc}')}",
+            status_code=303,
+        )
+
+    message = (
+        f"Restored {report['users']} account(s), {report['pins']} pin(s) "
+        f"and {report['settings']} setting(s)."
+    )
+    if report["unmatched"]:
+        shown = ", ".join(report["unmatched"][:5])
+        more = "" if len(report["unmatched"]) <= 5 else f" and {len(report['unmatched']) - 5} more"
+        message += f" Not in this library yet: {shown}{more} — run the syncs and restore again."
+    return RedirectResponse(f"/settings/backup?restored={quote(message)}", status_code=303)
 
 
 @app.get("/settings/jobs")
