@@ -72,6 +72,10 @@ class Settings(BaseModel):
     ntfy_topic: str = ""
     ntfy_token: str = ""
     notify_on_arrival: bool = True
+    #: Hold arrivals briefly and send one push per series instead of one per
+    #: episode. A season pack otherwise buzzes ten times for a single event.
+    #: 0 pushes immediately from the webhook, which is instant and noisier.
+    notify_batch_minutes: int = 5
     digest_enabled: bool = True
     digest_cron: str = "0 8 * * 1"
 

@@ -103,6 +103,13 @@
              {{ 'checked' if s.notify_on_arrival }}>
       Push when a pinned episode arrives in Plex
     </label>
+    <label>Group arrivals for
+      <input type="number" name="notify_batch_minutes" value="{{ s.notify_batch_minutes }}"
+             min="0" max="120">
+      <p class="hint">Minutes to wait before pushing, so a season landing all
+        at once is one notification rather than ten. 0 pushes the moment each
+        episode imports.</p>
+    </label>
     <label class="check">
       <input type="hidden" name="digest_enabled" value="false">
       <input type="checkbox" name="digest_enabled" value="true"

@@ -197,3 +197,100 @@ async def weekly_digest() -> str:
             sent += 1
 
     return f"digest sent to {sent} user(s), {quiet} had nothing scheduled"
+
+
+def _summarise(series_title: str, episodes: list) -> tuple[str, str]:
+    """Turn a batch of arrivals into one notification.
+
+    The useful unit of news is "there is a season to start", not "episode 7
+    of 10 finished importing".
+    """
+    if len(episodes) == 1:
+        only = episodes[0]
+        code = _episode_code(only["season"], only["episode"])
+        return (
+            f"{series_title} {code} is in Plex",
+            only["episode_title"] or "Just arrived and ready to watch.",
+        )
+
+    seasons = {int(e["season"]) for e in episodes}
+    codes = ", ".join(_episode_code(e["season"], e["episode"]) for e in episodes)
+    if len(seasons) == 1:
+        season = next(iter(seasons))
+        where = "Specials" if season == 0 else f"Season {season}"
+        return (f"{series_title} — {where}, {len(episodes)} episodes", codes)
+    return (f"{series_title} — {len(episodes)} episodes just landed", codes)
+
+
+@tracked("notify_pending")
+async def notify_pending() -> str:
+    """Push arrivals that have settled, batched per series.
+
+    Runs often and does nothing most of the time. A group is only sent once
+    nothing new has arrived for it in the batch window, so an import that
+    takes ten minutes still produces one notification rather than one per
+    file that happened to land in each tick.
+    """
+    settings = get_settings()
+    if not settings.notify_on_arrival:
+        return "skipped: arrival notifications are off"
+    if settings.notify_batch_minutes <= 0:
+        return "skipped: batching disabled, the webhook pushes directly"
+
+    now = datetime.now(UTC)
+    settled_before = (now - timedelta(minutes=settings.notify_batch_minutes)).isoformat()
+    floor = (now - timedelta(hours=RECONCILE_WINDOW_HOURS)).isoformat()
+
+    with session() as conn:
+        rows = conn.execute(
+            """
+            SELECT u.id AS user_id, u.ntfy_topic, s.id AS series_id,
+                   s.title AS series_title, e.id AS episode_id, e.season, e.episode,
+                   e.title AS episode_title, e.arrived_at
+            FROM episodes e
+            JOIN series s ON s.id = e.series_id
+            JOIN pins p ON p.series_id = s.id AND p.notify = 1
+            JOIN users u ON u.id = p.user_id
+            WHERE (e.has_file = 1 OR e.in_plex = 1)
+              AND e.arrived_at IS NOT NULL AND e.arrived_at >= ?
+              AND u.ntfy_topic IS NOT NULL AND u.ntfy_topic != ''
+              AND NOT EXISTS (
+                  SELECT 1 FROM episode_notifications n
+                  WHERE n.user_id = u.id AND n.episode_id = e.id
+              )
+            ORDER BY u.id, s.id, e.season, e.episode
+            """,
+            (floor,),
+        ).fetchall()
+
+    groups: dict[tuple[int, int], list] = {}
+    for row in rows:
+        groups.setdefault((int(row["user_id"]), int(row["series_id"])), []).append(row)
+
+    sent = 0
+    waiting = 0
+    for (user_id, _series_id), episodes in groups.items():
+        if max(e["arrived_at"] for e in episodes) > settled_before:
+            # Still importing. Leave it for a later tick rather than splitting
+            # one season across several notifications.
+            waiting += 1
+            continue
+
+        title, body = _summarise(episodes[0]["series_title"], episodes)
+        if not await ntfy.send(
+            title, body, tags="tv,white_check_mark", topic=episodes[0]["ntfy_topic"]
+        ):
+            continue
+
+        with session() as conn:
+            for episode in episodes:
+                conn.execute(
+                    "INSERT INTO episode_notifications (user_id, episode_id, notified_at) "
+                    "VALUES (?, ?, ?) ON CONFLICT(user_id, episode_id) DO NOTHING",
+                    (user_id, episode["episode_id"], utcnow()),
+                )
+        sent += 1
+
+    if not sent and not waiting:
+        return "nothing pending"
+    return f"{sent} notification(s) sent, {waiting} group(s) still settling"

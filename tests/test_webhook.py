@@ -62,7 +62,8 @@ def client(db, admin_token):
     token, _ = admin_token
     with TestClient(app) as c:
         c.cookies.set(auth.COOKIE, token)
-        save_settings({"webhook_secret": SECRET})
+        # These exercise the immediate path; batching has its own module.
+        save_settings({"webhook_secret": SECRET, "notify_batch_minutes": "0"})
         yield c
 
 

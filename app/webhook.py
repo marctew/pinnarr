@@ -18,6 +18,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.config import get_settings
 from app.db import session, utcnow
 from app.jobs.notifications import notify_arrival
 
@@ -172,18 +173,24 @@ async def handle(payload: Any, raw: str) -> str:
         record(delivery.event_type, False, detail, raw)
         return detail
 
-    pushed = 0
     with session() as conn:
         for season, number in delivery.episodes:
             mark_arrived(conn, series_id, season, number)
 
-    for season, number in delivery.episodes:
-        pushed += await notify_arrival(series_id, season, number)
+    # With batching on, notify_pending owns the push: a season pack arrives as
+    # a burst of separate webhooks, and pushing from here would mean one
+    # notification per file.
+    batching = get_settings().notify_batch_minutes > 0
+    pushed = 0
+    if not batching:
+        for season, number in delivery.episodes:
+            pushed += await notify_arrival(series_id, season, number)
 
     what = "upgrade" if delivery.is_upgrade else "import"
+    outcome = "queued for batching" if batching else f"{pushed} notification(s) sent"
     detail = (
         f"{delivery.title or series_id}: {len(delivery.episodes)} episode(s) marked "
-        f"present on {what}, {pushed} notification(s) sent"
+        f"present on {what}, {outcome}"
     )
     record(delivery.event_type, True, detail, raw)
     return detail

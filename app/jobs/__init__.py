@@ -50,6 +50,7 @@ def build_scheduler() -> AsyncIOScheduler:
     # Imported here so the @tracked decorators have run and populated REGISTRY.
     from app.jobs import (
         availability,
+        housekeeping,
         notifications,
         plex_sync,
         sonarr_sync,
@@ -71,11 +72,18 @@ def build_scheduler() -> AsyncIOScheduler:
     nightly(3, 20, tautulli_sync.sync_tautulli_history, "tautulli_history")
     nightly(3, 30, tmdb_sync.sync_outlook, "tmdb_status")
     nightly(4, 0, notifications.reconcile, "reconcile")
+    nightly(4, 30, housekeeping.housekeeping, "housekeeping")
 
     scheduler.add_job(
         sonarr_sync.sync_sonarr_calendar,
         CronTrigger(hour="*/2", minute=5),
         id="sonarr_calendar", replace_existing=True, max_instances=1, coalesce=True,
+    )
+    # Often, and usually a no-op: it only acts once a batch has settled.
+    scheduler.add_job(
+        notifications.notify_pending,
+        CronTrigger(minute="*"),
+        id="notify_pending", replace_existing=True, max_instances=1, coalesce=True,
     )
     scheduler.add_job(
         availability.sync_availability,
