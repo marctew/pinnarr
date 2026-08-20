@@ -286,3 +286,21 @@ def test_filtering_to_nothing_offers_a_way_back(client, admin_token):
     with session() as conn:
         seed_runtime(conn, user_id, runtimes=(90,))
     assert "Show everything" in client.get("/ready?fits=30").text
+
+
+def test_a_huge_group_is_capped_with_a_way_to_see_the_rest(client, admin_token):
+    """A whole imported series is one arrival; thirty-seven rows of it buries
+    everything else on the page."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id, runtimes=[30] * 20)
+    body = client.get("/ready").text
+    assert "14 more…" in body
+    assert "Episode 20" in body   # still reachable, just folded
+
+
+def test_a_small_group_gets_no_expander(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed_runtime(conn, user_id, runtimes=(30, 30))
+    assert "more…" not in client.get("/ready").text

@@ -114,3 +114,25 @@ def test_a_nonsense_air_date_does_not_crash_the_sync(db):
         ep.air_date_utc = "not a date"
         upsert_episode(conn, sid, ep)
         assert arrived_of(conn, sid, 1) is None
+
+
+async def test_a_full_guide_carries_episode_runtimes(db):
+    """Left as None, a 37-episode guide inserted 37 rows with no runtime, and
+    the page totalled only the handful the calendar had already seen."""
+    import httpx
+    import respx
+
+    from app.clients.sonarr import SonarrClient
+    from app.config import save_settings
+
+    save_settings({"sonarr_url": "http://sonarr.lan:8989", "sonarr_api_key": "k"})
+    with respx.mock:
+        respx.get("http://sonarr.lan:8989/api/v3/episode").mock(
+            return_value=httpx.Response(200, json=[
+                {"id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "Pilot",
+                 "runtime": 30, "monitored": True, "hasFile": True},
+            ])
+        )
+        episodes = await SonarrClient().episodes_for_series(7)
+
+    assert episodes[0].runtime == 30

@@ -271,7 +271,10 @@ class SonarrClient:
                 episode=int(item.get("episodeNumber") or 0),
                 title=item.get("title"),
                 air_date_utc=item.get("airDateUtc"),
-                runtime=None,
+                # Left as None originally, so a full guide inserted 37 rows
+                # with no runtime and "37 episodes · 1h 26m" was the sum of
+                # the three the calendar had already seen.
+                runtime=item.get("runtime"),
                 monitored=bool(item.get("monitored")),
                 has_file=bool(item.get("hasFile")),
                 finale_type=item.get("finaleType"),

@@ -326,15 +326,24 @@
   /* Poster flush to the card edges and stretched to whatever height the
      episode list needs, rather than a fixed box floating in padding. */
   .ready {
-    display: grid; grid-template-columns: 68px 1fr; align-items: stretch;
+    display: grid; grid-template-columns: 68px 1fr; align-items: start;
     margin-bottom: .6rem; overflow: hidden;
     /* Enough for a 2:3 poster at this width, so the common one-episode card
        shows the whole thing rather than a cropped band. */
     min-height: 102px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   }
-  .ready .art { display: block; line-height: 0; background: var(--bg); }
-  .ready .art img { width: 68px; height: 100%; object-fit: cover; display: block; }
+  /* Natural proportions, pinned to the top and following the list down.
+     Stretched to the card height, a 37-episode group cropped the poster to a
+     vertical sliver of somebody's face. */
+  .ready .art {
+    display: block; line-height: 0; background: var(--bg);
+    position: sticky; top: .75rem; align-self: start;
+  }
+  .ready .art img {
+    width: 68px; height: 102px; object-fit: cover; display: block;
+    border-bottom-right-radius: 6px;
+  }
   .ready .body { min-width: 0; padding: .75rem .9rem; }
   .ready h2 {
     font-size: 15px; margin: 0 0 .35rem; display: flex; gap: .6rem;
@@ -346,6 +355,11 @@
   .ready h2 .count { font-size: 12.5px; font-weight: 400; color: var(--muted); }
   /* The date belongs to the group, not to each row — it was being squeezed
      into the calendar's 36px poster column and wrapping a word per line. */
+  .ready .more {
+    display: block; margin: .4rem 0 0; font-size: 12.5px; color: var(--accent);
+    cursor: pointer; list-style: none;
+  }
+  .ready .more::-webkit-details-marker { display: none; }
   .ready h2 .recency {
     margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted);
     white-space: nowrap;

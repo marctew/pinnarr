@@ -37,8 +37,11 @@
         {# Ordered newest first, so the first row dates the whole group. #}
         <span class="recency">{{ episodes[0].arrived }}</span>
       </h2>
+      {# A whole imported series is one arrival, and thirty-seven rows of it
+         buries everything else on the page. #}
+      {% set shown = 6 %}
       <ul class="eps">
-        {% for ep in episodes %}
+        {% for ep in episodes[:shown] %}
           <li class="ep state-{{ ep.state }}">
             <span class="code">{{ ep.code }}</span>
             <span class="who"><span class="show">{{ ep.title or '—' }}</span>{% if ep.milestone %}<span class="milestone">{{ ep.milestone }}</span>{% endif %}</span>
@@ -48,6 +51,22 @@
           </li>
         {% endfor %}
       </ul>
+      {% if episodes|length > shown %}
+        <details>
+          <summary class="more">{{ episodes|length - shown }} more…</summary>
+          <ul class="eps">
+            {% for ep in episodes[shown:] %}
+          <li class="ep state-{{ ep.state }}">
+            <span class="code">{{ ep.code }}</span>
+            <span class="who"><span class="show">{{ ep.title or '—' }}</span>{% if ep.milestone %}<span class="milestone">{{ ep.milestone }}</span>{% endif %}</span>
+            <span class="pill">{{ ep.mark }}
+      {%- if ep.state == "downloading" and ep.progress %} {{ ep.progress|round|int }}%
+      {%- else %} {{ ep.label }}{% endif %}</span>
+          </li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endif %}
     </div>
   </section>
 {% endfor %}
