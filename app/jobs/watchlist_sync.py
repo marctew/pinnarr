@@ -26,22 +26,26 @@ from app.repo import set_pinned
 log = logging.getLogger(__name__)
 
 
-def _state(conn: Any, user_id: int) -> dict[int, tuple[int, int]]:
+def _state(conn: Any, user_id: int) -> dict[int, tuple[int, int, str | None]]:
     return {
-        int(r["series_id"]): (int(r["pinned"]), int(r["listed"]))
+        int(r["series_id"]): (int(r["pinned"]), int(r["listed"]), r["pushed_at"])
         for r in conn.execute(
-            "SELECT series_id, pinned, listed FROM watchlist_sync_state WHERE user_id = ?",
+            "SELECT series_id, pinned, listed, pushed_at FROM watchlist_sync_state "
+            "WHERE user_id = ?",
             (user_id,),
         )
     }
 
 
-def _remember(conn: Any, user_id: int, series_id: int, pinned: bool, listed: bool) -> None:
+def _remember(conn: Any, user_id: int, series_id: int, pinned: bool, listed: bool,
+              pushed_at: str | None = None) -> None:
     conn.execute(
-        "INSERT INTO watchlist_sync_state (user_id, series_id, pinned, listed, synced_at) "
-        "VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, series_id) DO UPDATE SET "
-        "pinned = excluded.pinned, listed = excluded.listed, synced_at = excluded.synced_at",
-        (user_id, series_id, int(pinned), int(listed), utcnow()),
+        "INSERT INTO watchlist_sync_state (user_id, series_id, pinned, listed, "
+        "pushed_at, synced_at) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id, series_id) DO UPDATE SET "
+        "pinned = excluded.pinned, listed = excluded.listed, "
+        "pushed_at = excluded.pushed_at, synced_at = excluded.synced_at",
+        (user_id, series_id, int(pinned), int(listed), pushed_at, utcnow()),
     )
 
 
@@ -82,17 +86,26 @@ async def _sync_user(user: Any) -> str:
     pin_here: list[int] = []
     unpin_here: list[int] = []
     no_identity = 0
+    refused = 0
 
     for series_id in pinned_ids | listed_ids | set(previous):
         pinned_now = series_id in pinned_ids
         listed_now = series_id in listed_ids
-        was_pinned, was_listed = previous.get(series_id, (0, 0))
+        was_pinned, was_listed, pushed_before = previous.get(series_id, (0, 0, None))
 
         if pinned_now == listed_now:
             continue
 
         pin_changed = pinned_now != bool(was_pinned)
         list_changed = listed_now != bool(was_listed)
+
+        if pushed_before and not pin_changed and not list_changed:
+            # We already pushed this exact difference and Plex did not take
+            # it. Pushing again on the next tick is how a show you removed
+            # from your watchlist reappears within ten minutes. Plex has
+            # answered; leave the pin alone and say so.
+            refused += 1
+            continue
 
         if pin_changed or not list_changed:
             # A pin with no plex:// identity cannot be watchlisted — nothing
@@ -138,11 +151,19 @@ async def _sync_user(user: Any) -> str:
         # listed_ids is what Plex says right now — re-read above if we
         # wrote anything — so nothing here is assumed.
         final_listed = listed_ids | set(pin_here) - set(unpin_here)
+        now = utcnow()
         for series_id in pinned_ids | listed_ids | set(previous):
-            _remember(
-                conn, int(user["id"]), series_id,
-                series_id in final_pinned, series_id in final_listed,
-            )
+            here = series_id in final_pinned
+            there = series_id in final_listed
+            if here == there:
+                # Agreed. Whatever we may have tried before is history.
+                stamp = None
+            elif series_id in to_list or series_id in to_unlist:
+                # We pushed this run and the read-back still disagrees.
+                stamp = now
+            else:
+                stamp = previous.get(series_id, (0, 0, None))[2]
+            _remember(conn, int(user["id"]), series_id, here, there, stamp)
 
     changes = len(to_list) + len(to_unlist) + len(pin_here) + len(unpin_here)
     note = f"{user['username']}: "
@@ -156,6 +177,11 @@ async def _sync_user(user: Any) -> str:
         note += (
             f" ({no_identity} pin(s) have no plex:// id yet — "
             "run the plex_library job)"
+        )
+    if refused:
+        note += (
+            f" ({refused} pin(s) Plex would not add to the watchlist — "
+            "left pinned here, not retried)"
         )
     return note
 

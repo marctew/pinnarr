@@ -136,15 +136,18 @@ async def test_a_write_plex_ignores_does_not_cost_you_the_pin(
     assert remembered(sid) == (1, 0)
 
 
-async def test_an_ignored_write_is_retried_rather_than_abandoned(
-    client, admin_token, plex
-):
+async def test_an_ignored_write_is_not_retried_forever(client, admin_token, plex):
+    """This started out asserting the opposite — retry until it sticks —
+    which turned out to be how a show you remove from your watchlist comes
+    back within ten minutes. The two situations are indistinguishable from
+    the state alone, so the tie is broken by remembering that we already
+    tried. See the "argue with Plex on a timer" tests below."""
     _, user_id = admin_token
     pin_one(user_id)
     plex["accept_writes"] = False
     await sync_watchlist()
     await sync_watchlist()
-    assert len(plex["adds"]) >= 2
+    assert len(plex["adds"]) == 1
 
 
 async def test_a_write_that_lands_settles_and_stops_retrying(client, admin_token, plex):
@@ -195,3 +198,99 @@ async def test_unpinning_here_still_removes_it_from_plex(client, admin_token, pl
         conn.execute("DELETE FROM pins WHERE series_id = ?", (sid,))
     await sync_watchlist()
     assert plex["listed"] == set()
+
+
+# ── ...and it must not argue with Plex on a timer ──
+
+
+def push_state(series_id):
+    with session() as conn:
+        row = conn.execute(
+            "SELECT pinned, listed, pushed_at FROM watchlist_sync_state "
+            "WHERE series_id = ?", (series_id,),
+        ).fetchone()
+    return None if row is None else dict(row)
+
+
+async def test_a_refused_add_is_tried_once_not_every_ten_minutes(
+    client, admin_token, plex
+):
+    """The other half of the same ambiguity. "Pinned here, not listed there,
+    neither side changed" also describes a show you have just removed from
+    your watchlist — so pushing again is how it comes straight back."""
+    _, user_id = admin_token
+    sid = pin_one(user_id)
+    plex["accept_writes"] = False
+
+    await sync_watchlist()
+    assert len(plex["adds"]) == 1
+    assert push_state(sid)["pushed_at"]
+
+    for _ in range(3):
+        note = await sync_watchlist()
+    assert len(plex["adds"]) == 1
+    assert "would not add" in note
+
+
+async def test_a_refused_add_keeps_the_pin(client, admin_token, plex):
+    """Not retrying must not mean giving up on the pin — the show is still
+    one you follow, Plex just will not carry it."""
+    _, user_id = admin_token
+    sid = pin_one(user_id)
+    plex["accept_writes"] = False
+
+    for _ in range(3):
+        await sync_watchlist()
+    assert pinned() == {sid}
+
+
+async def test_removing_it_in_plex_does_not_come_back(client, admin_token, plex):
+    """The symptom, end to end."""
+    _, user_id = admin_token
+    pin_one(user_id)
+    await sync_watchlist()
+    assert plex["listed"]
+
+    plex["listed"].clear()
+    for _ in range(3):
+        await sync_watchlist()
+    assert plex["listed"] == set()
+    assert pinned() == set()
+    assert len(plex["adds"]) == 1
+
+
+async def test_a_push_that_starts_working_clears_the_mark(client, admin_token, plex):
+    """Plex refusing once must not blacklist the show forever."""
+    _, user_id = admin_token
+    sid = pin_one(user_id)
+    plex["accept_writes"] = False
+    await sync_watchlist()
+    assert push_state(sid)["pushed_at"]
+
+    # Someone adds it in Plex by hand, which is the far side agreeing at last.
+    plex["listed"].add(GUID)
+    await sync_watchlist()
+    assert push_state(sid)["pushed_at"] is None
+    assert pinned() == {sid}
+
+
+async def test_a_fresh_pin_is_still_pushed_after_an_earlier_refusal(
+    client, admin_token, plex
+):
+    """The mark is per difference, not per show: unpinning and re-pinning is
+    a new decision and deserves a new attempt."""
+    _, user_id = admin_token
+    sid = pin_one(user_id)
+    plex["accept_writes"] = False
+    await sync_watchlist()
+    assert len(plex["adds"]) == 1
+
+    with session() as conn:
+        conn.execute("DELETE FROM pins WHERE series_id = ?", (sid,))
+    await sync_watchlist()
+
+    plex["accept_writes"] = True
+    pin_one(user_id)
+    await sync_watchlist()
+    assert len(plex["adds"]) == 2
+    assert plex["listed"] == {GUID}
