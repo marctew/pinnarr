@@ -102,8 +102,46 @@ class TmdbClient:
         out = []
         for item in (data.get("results") or [])[:limit]:
             if isinstance(item, dict) and item.get("id"):
-                out.append({"tmdb_id": int(item["id"]), "title": item.get("name") or ""})
+                # More than the id and a name, because a suggestion for
+                # something you do not own has no series row to borrow a
+                # poster from and would otherwise be a bare string.
+                out.append(
+                    {
+                        "tmdb_id": int(item["id"]),
+                        "title": item.get("name") or "",
+                        "poster_path": item.get("poster_path"),
+                        "first_air_date": item.get("first_air_date") or None,
+                        "overview": item.get("overview") or None,
+                    }
+                )
         return out
+
+    async def tv_credits(self, person_id: int, limit: int = 60) -> list[dict[str, Any]]:
+        """Everything on television one person has been in.
+
+        The person page shows what you own, which was the point — but it
+        means a forty-credit career reads as three shows. This is the rest of
+        it, so the page can mark up what is missing rather than omit it.
+        """
+        data = await self._get(f"/person/{person_id}/tv_credits") or {}
+        out = []
+        for item in (data.get("cast") or []):
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            out.append(
+                {
+                    "tmdb_id": int(item["id"]),
+                    "title": item.get("name") or "",
+                    "character": item.get("character") or None,
+                    "poster_path": item.get("poster_path"),
+                    "first_air_date": item.get("first_air_date") or None,
+                    "episode_count": int(item.get("episode_count") or 0),
+                }
+            )
+        # Most of a career first: a one-episode guest spot is not what
+        # somebody is looking for when they open this page.
+        out.sort(key=lambda c: (-c["episode_count"], c["title"]))
+        return out[:limit]
 
     async def credits(self, tmdb_id: int, limit: int = 25) -> list[CastMember]:
         """The cast, ranked by how much of the show they are actually in.

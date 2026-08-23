@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app import watching
 from app.clients.http import UpstreamError
+from app.clients.overseerr import REQUESTED
 from app.clients.sonarr import SonarrClient
 from app.clients.tmdb import TmdbClient
 from app.config import (
@@ -26,7 +27,9 @@ from app.repo import (
     get_series,
     latest_season,
     mark_episodes_synced,
+    media_state,
     next_unwatched,
+    owned_tmdb_ids,
     person,
     pin_preferences,
     season_progress,
@@ -190,6 +193,33 @@ async def person_page(request: Request, tmdb_person_id: int):
             raise HTTPException(status_code=404, detail="nobody by that id here")
         roles = appearances(conn, tmdb_person_id, viewer)
 
+    # The rest of the career, so a forty-credit actor does not read as three
+    # shows. Fetched live rather than stored: it is one call, only when
+    # somebody opens the page, and it would otherwise be a table nobody reads
+    # kept fresh by a job nobody asked for.
+    elsewhere: list = []
+    if get_settings().tmdb_configured:
+        try:
+            credits = await TmdbClient().tv_credits(tmdb_person_id)
+        except UpstreamError as exc:
+            log.warning("no filmography for %s: %s", who["name"], exc)
+            credits = []
+        mine = {int(r["id"]) for r in roles}
+        with session() as conn:
+            owned = owned_tmdb_ids(conn, [c["tmdb_id"] for c in credits])
+            for credit in credits:
+                held = owned.get(credit["tmdb_id"])
+                if held and int(held["id"]) in mine:
+                    continue  # Already above, with your own watch state on it.
+                state = media_state(conn, credit["tmdb_id"])
+                elsewhere.append(
+                    {
+                        **credit,
+                        "owned": held,
+                        "status": state["status"] if state else None,
+                    }
+                )
+
     return templates.TemplateResponse(
         request,
         "person.html",
@@ -197,6 +227,9 @@ async def person_page(request: Request, tmdb_person_id: int):
             "who": who,
             "roles": roles,
             "seen": [r for r in roles if int(r["seen"] or 0) > 0],
+            "elsewhere": elsewhere,
+            "can_request": get_settings().overseerr_requests_enabled,
+            "statuses": REQUESTED,
         },
     )
 

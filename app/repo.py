@@ -1473,10 +1473,107 @@ def store_recommendations(conn: sqlite3.Connection, series_id: int,
     conn.execute("DELETE FROM recommendations WHERE source_series_id = ?", (series_id,))
     for item in items:
         conn.execute(
-            "INSERT INTO recommendations (source_series_id, tmdb_id, title, updated_at) "
-            "VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-            (series_id, item["tmdb_id"], item.get("title"), utcnow()),
+            "INSERT INTO recommendations (source_series_id, tmdb_id, title, "
+            "poster_path, first_air_date, overview, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+            (series_id, item["tmdb_id"], item.get("title"), item.get("poster_path"),
+             item.get("first_air_date"), item.get("overview"), utcnow()),
         )
+
+
+def wanted(conn: sqlite3.Connection, user_id: int,
+           limit: int = 24) -> list[sqlite3.Row]:
+    """Shows your pins point at that you do not own.
+
+    These have always been collected — store_recommendations keeps every
+    TMDB suggestion — and always thrown away, on the grounds that a
+    recommendation you cannot watch is an advert. With somewhere to send a
+    request that stops being true.
+
+    The Overseerr status rides along so a card can say "already asked for"
+    rather than offering a button that would be the second request.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT r.tmdb_id, r.title, r.poster_path, r.first_air_date, r.overview,
+                   count(*) AS votes,
+                   group_concat(src.title, ', ') AS because,
+                   o.status, o.requested_by
+            FROM recommendations r
+            JOIN series src ON src.id = r.source_series_id
+            JOIN pins mine ON mine.series_id = src.id AND mine.user_id = ?
+            LEFT JOIN overseerr_media o ON o.tmdb_id = r.tmdb_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM series s WHERE s.tmdb_id = r.tmdb_id
+            )
+            GROUP BY r.tmdb_id
+            ORDER BY votes DESC, r.first_air_date DESC, r.title
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+    )
+
+
+def store_media_states(conn: sqlite3.Connection, states: dict) -> int:
+    """Replace what Overseerr says. Wholesale, because a request that has
+    been cancelled there should not linger here as pending."""
+    conn.execute("DELETE FROM overseerr_media")
+    for tmdb_id, state in states.items():
+        conn.execute(
+            "INSERT INTO overseerr_media (tmdb_id, status, requested_by, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (int(tmdb_id), state.status, state.requested_by, utcnow()),
+        )
+    return len(states)
+
+
+def media_state(conn: sqlite3.Connection, tmdb_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM overseerr_media WHERE tmdb_id = ?", (tmdb_id,)
+    ).fetchone()
+
+
+def note_request(conn: sqlite3.Connection, tmdb_id: int, status: str,
+                 requested_by: str | None) -> None:
+    """Record a request the moment it is made.
+
+    Waiting for the next sweep would leave the button you just pressed
+    looking as though it had not worked.
+    """
+    conn.execute(
+        "INSERT INTO overseerr_media (tmdb_id, status, requested_by, updated_at) "
+        "VALUES (?, ?, ?, ?) ON CONFLICT(tmdb_id) DO UPDATE SET "
+        "status = excluded.status, requested_by = excluded.requested_by, "
+        "updated_at = excluded.updated_at",
+        (int(tmdb_id), status, requested_by, utcnow()),
+    )
+
+
+def owned_tmdb_ids(conn: sqlite3.Connection, tmdb_ids: list[int]) -> dict[int, dict]:
+    """Which of these TMDB ids are already on the shelf, and what you've seen.
+
+    Used by the person page to mark up a filmography: owned, watched, or
+    neither. One query rather than one per credit.
+    """
+    if not tmdb_ids:
+        return {}
+    marks = ",".join("?" * len(tmdb_ids))
+    rows = conn.execute(
+        f"""
+        SELECT s.id, s.tmdb_id, s.title,
+               (SELECT count(*) FROM episodes e
+                JOIN episode_watches w ON w.episode_id = e.id
+                WHERE e.series_id = s.id) AS seen
+        FROM series s WHERE s.tmdb_id IN ({marks})
+        """,
+        tmdb_ids,
+    ).fetchall()
+    return {
+        int(r["tmdb_id"]): {"id": r["id"], "title": r["title"], "seen": int(r["seen"] or 0)}
+        for r in rows
+    }
 
 
 def suggested(conn: sqlite3.Connection, user_id: int, limit: int = 30) -> list[sqlite3.Row]:

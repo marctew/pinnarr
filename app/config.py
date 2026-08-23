@@ -70,10 +70,11 @@ class Settings(BaseModel):
     tmdb_api_key: str = ""
 
     # ── Overseerr ────────────────────────────────
-    #: URL only. Pinnarr links out to it and never calls it, so there is
-    #: nothing for a key to authenticate — and an unused credential in the
-    #: settings table is a thing to leak, not a feature.
     overseerr_url: str = ""
+    #: Only needed to *do* something there. Linking out and the connection
+    #: test both work without it; requesting, and knowing what has already
+    #: been requested, do not.
+    overseerr_api_key: str = ""
 
     # ── Notifications ────────────────────────────
     ntfy_url: str = "https://ntfy.sh"
@@ -140,7 +141,12 @@ class Settings(BaseModel):
 
     @property
     def overseerr_configured(self) -> bool:
+        """Enough to link out to, which is all the URL alone buys."""
         return bool(self.overseerr_url)
+
+    @property
+    def overseerr_requests_enabled(self) -> bool:
+        return bool(self.overseerr_url and self.overseerr_api_key)
 
     @property
     def ntfy_configured(self) -> bool:
@@ -174,6 +180,7 @@ SECRET_FIELDS: Final[frozenset[str]] = frozenset(
         "tautulli_api_key",
         "tmdb_api_key",
         "ntfy_token",
+        "overseerr_api_key",
         "webhook_secret",
     }
 )

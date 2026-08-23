@@ -54,6 +54,7 @@ def build_scheduler() -> AsyncIOScheduler:
         guides,
         housekeeping,
         notifications,
+        overseerr_sync,
         plex_sync,
         queue_sync,
         sonarr_sync,
@@ -102,6 +103,13 @@ def build_scheduler() -> AsyncIOScheduler:
         # Often enough that tagging in Sonarr feels like it did something.
         CronTrigger(minute="*/10"),
         id="sonarr_tags", replace_existing=True, max_instances=1, coalesce=True,
+    )
+    # Often enough that a request made here stops saying "pending" soon
+    # after it stops being pending there.
+    scheduler.add_job(
+        overseerr_sync.sync_requests,
+        CronTrigger(minute="*/15"),
+        id="overseerr_requests", replace_existing=True, max_instances=1, coalesce=True,
     )
     scheduler.add_job(
         queue_sync.sync_queue,

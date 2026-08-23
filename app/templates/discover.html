@@ -23,6 +23,36 @@
   </article>
 {% endmacro %}
 
+{# A show Pinnarr has never had a file of, so there is no series row and no
+   cached poster — everything here comes from what TMDB said when it
+   suggested it. #}
+{% macro want_card(w) %}
+  <article class="card want" id="want-{{ w['tmdb_id'] }}">
+    <div class="thumb">
+      <span class="poster">
+        {% if w['poster_path'] %}
+          <img src="https://image.tmdb.org/t/p/w300{{ w['poster_path'] }}"
+               alt="{{ w['title'] }}" loading="lazy" width="200" height="300">
+        {% else %}
+          <span class="noposter">{{ w['title'][:1] }}</span>
+        {% endif %}
+      </span>
+    </div>
+    <h4><a href="https://www.themoviedb.org/tv/{{ w['tmdb_id'] }}"
+           target="_blank" rel="noopener noreferrer">{{ w['title'] }}</a></h4>
+    <p class="badge">
+      {%- if w['first_air_date'] %}{{ w['first_air_date'][:4] }}{% else %}—{% endif -%}
+    </p>
+    {% if w['status'] in statuses %}
+      <p class="asked">{{ w['status'] }}{% if w['requested_by'] %} · {{ w['requested_by'] }}{% endif %}</p>
+    {% else %}
+      <button type="button" class="tiny request" id="req-{{ w['tmdb_id'] }}"
+              onclick="requestShow({{ w['tmdb_id'] }})">Request</button>
+    {% endif %}
+    <p class="hint because" title="{{ w['because'] }}">like {{ w['because'] }}</p>
+  </article>
+{% endmacro %}
+
 {% block content %}
 <h1>Discover</h1>
 <p class="lede">Shows in your library with something coming, that you haven't
@@ -54,12 +84,47 @@
     this one is about what you've forgotten you own.</p>
 {% endcall %}
 
+{% if wanted %}
+  <details class="pane" data-pane="wanted">
+    <summary>Not in your library<span class="count">{{ wanted|length }}</span></summary>
+    <p class="hint">TMDB thinks these resemble your pins, and you don't own
+      them. Pinnarr has always collected these and thrown them away — a
+      recommendation you can't watch is an advert. With Overseerr wired up
+      it isn't one.</p>
+    <div class="grid">{% for w in wanted %}{{ want_card(w) }}{% endfor %}</div>
+  </details>
+{% endif %}
+
 {% call pane('announced', 'Announced or filming, no date yet', announced) %}
   <p class="hint">Metadata says a new season is coming but nobody has scheduled
     it. Pin now and it lands on your calendar the moment it gets a date.</p>
 {% endcall %}
 
 <script>
+  async function requestShow(id) {
+    const btn = document.getElementById('req-' + id);
+    btn.disabled = true;
+    btn.textContent = 'Asking…';
+    try {
+      const r = await fetch('/api/request/' + id, { method: 'POST' });
+      const data = await r.json();
+      if (r.ok) {
+        // Replaced rather than re-enabled: asking twice is the one thing a
+        // request button should make impossible.
+        const note = document.createElement('p');
+        note.className = 'asked';
+        note.textContent = data.status;
+        btn.replaceWith(note);
+      } else {
+        btn.textContent = '✕ ' + (data.detail || r.status);
+        btn.disabled = false;
+      }
+    } catch (err) {
+      btn.textContent = '✕ failed';
+      btn.disabled = false;
+    }
+  }
+
   // Which panes you left open, remembered locally. No round trip and no
   // schema for a preference that only matters to this browser.
   const PANES = 'pinnarr.discover.panes';

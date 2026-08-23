@@ -44,4 +44,75 @@
     </article>
   {% endfor %}
 </div>
+
+{% if elsewhere %}
+  <h2 class="section">The rest of their career</h2>
+  <p class="lede">Everything else TMDB has them in.
+    {%- if can_request %} What you don't own can be requested from here.
+    {%- else %} Add an Overseerr API key in settings to request from here.{% endif %}</p>
+
+  <div class="grid">
+    {% for c in elsewhere %}
+      <article class="card want" id="want-{{ c.tmdb_id }}">
+        <div class="thumb">
+          <span class="poster">
+            {% if c.poster_path %}
+              <img src="https://image.tmdb.org/t/p/w300{{ c.poster_path }}"
+                   alt="{{ c.title }}" loading="lazy" width="200" height="300">
+            {% else %}
+              <span class="noposter">{{ c.title[:1] }}</span>
+            {% endif %}
+          </span>
+        </div>
+        <h4>
+          {% if c.owned %}
+            <a href="/series/{{ c.owned.id }}">{{ c.title }}</a>
+          {% else %}
+            <a href="https://www.themoviedb.org/tv/{{ c.tmdb_id }}"
+               target="_blank" rel="noopener noreferrer">{{ c.title }}</a>
+          {% endif %}
+        </h4>
+        {% if c.character %}<p class="hint">as {{ c.character }}</p>{% endif %}
+        {% if c.owned %}
+          <p class="badge {{ 'seen' if c.owned.seen }}">
+            {%- if c.owned.seen %}{{ c.owned.seen }} watched{% else %}on your shelf{% endif -%}
+          </p>
+        {% elif c.status in statuses %}
+          <p class="asked">{{ c.status }}</p>
+        {% elif can_request %}
+          <button type="button" class="tiny request" id="req-{{ c.tmdb_id }}"
+                  onclick="requestShow({{ c.tmdb_id }})">Request</button>
+        {% else %}
+          <p class="badge">not in your library</p>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+
+  <script>
+    async function requestShow(id) {
+      const btn = document.getElementById('req-' + id);
+      btn.disabled = true;
+      btn.textContent = 'Asking…';
+      try {
+        const r = await fetch('/api/request/' + id, { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          // Replaced rather than re-enabled: asking twice is the one thing a
+          // request button should make impossible.
+          const note = document.createElement('p');
+          note.className = 'asked';
+          note.textContent = data.status;
+          btn.replaceWith(note);
+        } else {
+          btn.textContent = '✕ ' + (data.detail || r.status);
+          btn.disabled = false;
+        }
+      } catch (err) {
+        btn.textContent = '✕ failed';
+        btn.disabled = false;
+      }
+    }
+  </script>
+{% endif %}
 {% endblock %}

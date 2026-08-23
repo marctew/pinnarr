@@ -1,9 +1,9 @@
 """Linking out to Overseerr, and the right-click that gets you there.
 
-Link-only on purpose. Pinnarr never calls Overseerr for anything a page
-needs, so there is nothing for an API key to authenticate — and an unused
-credential sitting in the settings table is a thing to leak, not a feature.
-The one call it does make is the connection test, which needs no key.
+The URL alone buys the links and nothing else, which is why it is a
+separate setting from the key: somebody who only wants to right-click a name
+should not have to hand over an admin credential to do it. Requesting lives
+in test_requests.py.
 """
 
 from __future__ import annotations
@@ -79,10 +79,13 @@ def test_no_person_no_link(db):
 # ── The setting ──
 
 
-def test_the_url_is_on_the_settings_page(client):
+def test_both_fields_are_on_the_settings_page(client):
+    """The URL alone still buys the links — the key is what adds requesting,
+    which is why they are separate and the page says which does what."""
     body = client.get("/settings").text
     assert 'name="overseerr_url"' in body
-    assert "no API key to give it" in body
+    assert 'name="overseerr_api_key"' in body
+    assert "URL alone is enough to link out to" in body
 
 
 def test_the_url_round_trips_through_the_form(client):

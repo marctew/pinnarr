@@ -55,6 +55,27 @@
   <div class="bar"><button type="submit" class="primary">Save</button></div>
 </form>
 
+{% if overseerr_users %}
+  <h2 class="section">Overseerr</h2>
+  <p class="lede">Which Overseerr account your requests should be made under.
+    Its API key is a single admin credential, so without this everything
+    anyone asks for from Pinnarr arrives there under one name.</p>
+  <form method="post" action="/profile">
+    <input type="hidden" name="ntfy_topic" value="{{ current_user(request)['ntfy_topic'] or '' }}">
+    <label>Request as
+      <select name="overseerr_user_id">
+        <option value="">— don't attribute —</option>
+        {% for o in overseerr_users %}
+          <option value="{{ o.user_id }}"
+                  {{ 'selected' if current_user(request)['overseerr_user_id'] == o.user_id }}>
+            {{ o.name }}{% if o.email %} ({{ o.email }}){% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="bar"><button type="submit">Save</button></div>
+  </form>
+{% endif %}
+
 <h2 class="section">API keys</h2>
 <p class="lede">For things that aren't a browser: a home-automation module, a
   Stream Deck plugin, a shell script. A key acts as you — your pins, your

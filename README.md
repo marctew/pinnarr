@@ -152,6 +152,7 @@ cannot reach the admin routes.
 | `POST /api/series/{id}/refresh-watched` | Re-read one show's watch state from Plex now |
 | `POST /api/series/{id}/watched` | Mark a show (or `season=N`) watched in Plex |
 | `POST /api/episodes/{id}/watched` | Mark one episode watched in Plex |
+| `POST /api/request/{tmdbId}` | Ask Overseerr for a show you don't own |
 | `GET /api/calendar` | The raw calendar feed |
 | `GET /healthz` | Liveness, config state and last job runs (no key needed) |
 
@@ -183,6 +184,7 @@ Built:
 - [x] Backup and restore
 - [x] Cast cross-referencing against your own library
 - [x] API keys and a read API for integrations
+- [x] Overseerr: link out, request what you don't own, and see what's been asked
 
 Not built:
 

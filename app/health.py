@@ -14,7 +14,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.clients.http import UpstreamError, request_json
+from app.clients.http import UpstreamError
+from app.clients.overseerr import OverseerrClient
 from app.clients.plex import PlexClient
 from app.clients.sonarr import SonarrClient
 from app.clients.tautulli import TautulliClient
@@ -117,16 +118,21 @@ async def _test_overseerr() -> dict[str, Any]:
     s = get_settings()
     if not s.overseerr_configured:
         return _fail("No URL saved yet.")
-    data = await request_json(
-        "overseerr", "GET", f"{s.overseerr_url}/api/v1/status"
-    )
-    version = (data or {}).get("version")
-    if not version:
-        return _fail(
-            f"{s.overseerr_url} answered, but not like an Overseerr. "
-            "Check the URL points at Overseerr itself, not a reverse proxy path."
+
+    client = OverseerrClient()
+    version = await client.ping()
+    if not s.overseerr_api_key:
+        return _ok(
+            f"Connected to Overseerr {version}. Links will work; add an API key "
+            "to request things from here."
         )
-    return _ok(f"Connected to Overseerr {version}.")
+    # The key is only proved by an endpoint that needs it. /status does not,
+    # so a green tick without this would mean nothing about the key.
+    users = await client.users()
+    return _ok(
+        f"Connected to Overseerr {version}, and the key works — "
+        f"{len(users)} account(s) it can request on behalf of."
+    )
 
 
 _TESTS = {

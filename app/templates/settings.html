@@ -111,9 +111,13 @@
       <input type="url" name="overseerr_url" value="{{ s.overseerr_url }}"
              placeholder="http://192.168.4.10:5055">
     </label>
-    <p class="hint">Optional, and link-only — right-clicking a cast member
-      offers to look them up there. Pinnarr never calls Overseerr, so there
-      is no API key to give it.</p>
+    {{ secret("overseerr_api_key", "API key", saved.overseerr_api_key) }}
+    <p class="hint">The URL alone is enough to link out to — right-clicking a
+      cast member offers to look them up there. A key adds the rest: Discover
+      gains the shows your pins point at that you <em>don't</em> own, with a
+      Request button, and Pinnarr can tell you what has already been asked
+      for. Requests are attributed per account under
+      <a href="/profile">Your account</a>.</p>
     {{ tester("overseerr", "Overseerr") }}
   </fieldset>
 

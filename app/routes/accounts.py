@@ -9,6 +9,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
 from app import auth, notify
+from app.clients.http import UpstreamError
+from app.clients.overseerr import OverseerrClient
+from app.config import get_settings
 from app.db import session
 from app.repo import (
     adopt_orphaned_pins,
@@ -110,6 +113,16 @@ def _set_cookie(response, token: str) -> None:
 async def profile(request: Request, saved: str = "", error: str = "", new_key: str = ""):
     with session() as conn:
         keys = auth.api_keys(conn, int(request.state.user["id"]))
+
+    # Only offered when there is somewhere to ask. A dropdown of accounts on
+    # a service you have not connected is furniture.
+    people: list = []
+    if get_settings().overseerr_requests_enabled:
+        try:
+            people = await OverseerrClient().users()
+        except UpstreamError as exc:
+            log.warning("could not list Overseerr users: %s", exc)
+
     return templates.TemplateResponse(
         request, "profile.html",
         {
@@ -118,6 +131,7 @@ async def profile(request: Request, saved: str = "", error: str = "", new_key: s
             "keys": keys,
             # Shown once, on the redirect that created it, and never again.
             "new_key": new_key,
+            "overseerr_users": people,
         },
     )
 
@@ -177,6 +191,7 @@ async def profile_save(request: Request):
     topic = str(form.get("ntfy_topic", "")).strip()
     password = str(form.get("password", ""))
     plex_token = str(form.get("plex_token", ""))
+    raw_overseerr = str(form.get("overseerr_user_id", "")).strip()
 
     if password and len(password) < 8:
         return RedirectResponse(
@@ -190,6 +205,12 @@ async def profile_save(request: Request):
             auth.set_plex_token(conn, int(user["id"]), plex_token)
         if password:
             auth.set_password(conn, int(user["id"]), password)
+        # Blank means "don't attribute", which is different from unset only
+        # in that you chose it.
+        conn.execute(
+            "UPDATE users SET overseerr_user_id = ? WHERE id = ?",
+            (int(raw_overseerr) if raw_overseerr.isdigit() else None, int(user["id"])),
+        )
 
     if password:
         # set_password drops every session, including this one.

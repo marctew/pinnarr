@@ -11,6 +11,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from app import labels
+from app.clients.http import UpstreamError
+from app.clients.overseerr import REQUESTED, OverseerrClient
+from app.config import get_settings
 from app.db import session
 from app.episodes import decorate
 from app.episodes import parse as parse_dt
@@ -27,6 +30,7 @@ from app.repo import (
     finished_pins,
     gaps,
     latest_retire_batch,
+    note_request,
     pinned_count,
     plex_shortfall,
     ready_to_watch,
@@ -34,6 +38,7 @@ from app.repo import (
     section_titles,
     suggested,
     undo_retire,
+    wanted,
 )
 from app.web import now_local, templates
 
@@ -221,6 +226,35 @@ async def retire_cold(request: Request) -> JSONResponse:
     return JSONResponse({"retired": removed, "batch": batch, "pinned_total": total})
 
 
+@router.post("/api/request/{tmdb_id}")
+async def request_show(request: Request, tmdb_id: int) -> JSONResponse:
+    """Ask Overseerr for a show Pinnarr does not have.
+
+    Attributed to whoever pressed the button where Pinnarr knows their
+    Overseerr account, because the key is a single admin credential and
+    everything asked for with it otherwise arrives under one name.
+    """
+    if not get_settings().overseerr_requests_enabled:
+        return JSONResponse(
+            {"ok": False, "detail": "Overseerr needs a URL and an API key for this."},
+            status_code=409,
+        )
+
+    user = request.state.user
+    try:
+        status = await OverseerrClient().request_tv(
+            tmdb_id, user_id=user["overseerr_user_id"]
+        )
+    except UpstreamError as exc:
+        return JSONResponse(
+            {"ok": False, "detail": f"Overseerr said no: {exc}"}, status_code=409
+        )
+
+    with session() as conn:
+        note_request(conn, tmdb_id, status, user["username"])
+    return JSONResponse({"ok": True, "status": status, "detail": f"Requested — {status}."})
+
+
 @router.get("/discover")
 async def discover(request: Request):
     """Unpinned series with something actually coming.
@@ -239,6 +273,14 @@ async def discover(request: Request):
         announced = discover_announced(conn, user_id)
         counts = discover_counts(conn, user_id, now.isoformat())
         suggestions = suggested(conn, user_id)
+        # Only worth showing where a request can actually be made. Without a
+        # key it is a list of things you cannot have, which is the advert
+        # this was always filtered out to avoid being.
+        missing = (
+            wanted(conn, user_id)
+            if get_settings().overseerr_requests_enabled
+            else []
+        )
         sections = section_titles(conn)
 
     return templates.TemplateResponse(
@@ -249,6 +291,8 @@ async def discover(request: Request):
             "later": later,
             "announced": announced,
             "suggestions": suggestions,
+            "wanted": missing,
+            "statuses": REQUESTED,
             "counts": counts,
             "sections": sections,
             "tz": str(tz),

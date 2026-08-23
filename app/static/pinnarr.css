@@ -733,3 +733,23 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
 .ctx a:hover { background: var(--bg); color: var(--accent); }
 /* A right-clickable name earns a hint that it is one, without shouting. */
 [data-person] { cursor: context-menu; }
+
+/* ── Things you do not own ─────────────────────── */
+.card.want .poster { display: block; }
+.card.want .noposter {
+  display: grid; place-items: center; aspect-ratio: 2 / 3;
+  background: var(--bg); color: var(--muted); font-size: 32px; font-weight: 600;
+}
+.card .request {
+  width: 100%; margin-top: .3rem;
+  border-color: var(--accent); color: var(--accent);
+}
+.card .asked {
+  margin: .3rem 0 0; font-size: 11.5px; text-align: center;
+  padding: .18rem .5rem; border-radius: 999px;
+  border: 1px solid var(--ok); color: var(--ok);
+}
+.card .because {
+  margin: .3rem 0 0; font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
