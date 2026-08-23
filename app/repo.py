@@ -1809,7 +1809,13 @@ def downloads(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
                     AND q.percent < 100) AS stalled
             FROM download_queue q
             LEFT JOIN episodes e ON e.sonarr_episode_id = q.sonarr_episode_id
-            LEFT JOIN series s ON s.id = e.series_id
+            -- Through the episode where there is one, and straight to the
+            -- series where there is not. Episodes only exist inside the
+            -- synced calendar window, so without the second route a download
+            -- for an older season has no link to a show Pinnarr knows well.
+            LEFT JOIN series s
+                   ON s.id = e.series_id
+                   OR (e.series_id IS NULL AND s.sonarr_id = q.sonarr_series_id)
             LEFT JOIN pins p ON p.series_id = s.id AND p.user_id = :uid
             -- Yours first, then whatever needs attention within that. The
             -- page answers "what is Sonarr doing" as well as "what is coming

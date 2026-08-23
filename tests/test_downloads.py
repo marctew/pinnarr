@@ -307,3 +307,68 @@ def test_the_page_marks_which_are_yours(client, admin_token):
     body = client.get("/downloads").text
     assert "dl mine" in body
     assert "1 of 2" in body
+
+
+def test_a_download_outside_the_calendar_window_still_links_to_the_show(
+    db, admin_token
+):
+    """Episodes only exist inside the synced window, so a grab for an older
+    season had no episode row and therefore no link — to a show Pinnarr
+    knows perfectly well. Sonarr sends the series id; it just was not kept."""
+    _, user_id = admin_token
+    with session() as conn:
+        sid = make_series(conn, "Old Favourite", sonarr_id=42, pinned_by=user_id)
+        conn.execute(
+            "INSERT INTO download_queue (sonarr_episode_id, sonarr_series_id, "
+            "status, percent, series_title, episode_title, season, episode, "
+            "first_seen_at, progress_at, updated_at) VALUES (777, 42, "
+            "'downloading', 20, 'Old Favourite', 'Episode 4', 2, 4, ?, ?, ?)",
+            (iso(hours=-2), iso(hours=-1), utcnow()),
+        )
+        rows = downloads(conn, user_id)
+
+    assert rows[0]["series_id"] == sid
+    assert rows[0]["is_pinned"] == 1
+
+
+def test_the_page_links_it(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = make_series(conn, "Old Favourite", sonarr_id=42, pinned_by=user_id)
+        conn.execute(
+            "INSERT INTO download_queue (sonarr_episode_id, sonarr_series_id, "
+            "status, percent, series_title, season, episode, first_seen_at, "
+            "progress_at, updated_at) VALUES (777, 42, 'downloading', 20, "
+            "'Old Favourite', 2, 4, ?, ?, ?)",
+            (iso(hours=-2), iso(hours=-1), utcnow()),
+        )
+    assert f'href="/series/{sid}"' in client.get("/downloads").text
+
+
+def test_a_series_sonarr_has_and_pinnarr_does_not_is_still_listed(db, admin_token):
+    """No link, because there is genuinely nowhere to go — but it is on the
+    page, which is the difference between honest and silent."""
+    _, user_id = admin_token
+    with session() as conn:
+        conn.execute(
+            "INSERT INTO download_queue (sonarr_episode_id, sonarr_series_id, "
+            "status, percent, series_title, first_seen_at, progress_at, updated_at) "
+            "VALUES (777, 999, 'downloading', 20, 'Never Synced', ?, ?, ?)",
+            (iso(hours=-2), iso(hours=-1), utcnow()),
+        )
+        rows = downloads(conn, user_id)
+    assert len(rows) == 1
+    assert rows[0]["series_id"] is None
+    assert rows[0]["series_title"] == "Never Synced"
+
+
+async def test_the_series_id_is_stored_from_sonarr(client, sonarr_queue):
+    """It has been in QueueItem since the sync was written and nothing ever
+    wrote it down."""
+    sonarr_queue((555, 40.0))
+    await run_sync(client)
+    with session() as conn:
+        row = conn.execute(
+            "SELECT sonarr_series_id FROM download_queue"
+        ).fetchone()
+    assert row["sonarr_series_id"] == 7
