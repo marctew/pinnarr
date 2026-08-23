@@ -12,7 +12,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app import auth
-from app.jobs import REGISTRY, build_scheduler
+from app.jobs import ON_DEMAND, REGISTRY, build_scheduler
 from app.main import app
 
 
@@ -21,8 +21,18 @@ def scheduled_ids(db) -> set[str]:
 
 
 def test_every_registered_job_is_scheduled(db):
-    """A job nobody runs is a job that silently never happens."""
-    assert not set(REGISTRY) - scheduled_ids(db)
+    """A job nobody runs is a job that silently never happens.
+
+    Except the ones that say so: ON_DEMAND is for work triggered by
+    something you did rather than by the clock.
+    """
+    assert not set(REGISTRY) - scheduled_ids(db) - ON_DEMAND
+
+
+def test_on_demand_jobs_are_real_jobs(db):
+    """The exemption is a list of names, so it could name something that no
+    longer exists and quietly excuse nothing."""
+    assert set(REGISTRY) >= ON_DEMAND
 
 
 def test_every_scheduled_job_is_registered(db):

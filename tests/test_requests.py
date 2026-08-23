@@ -459,3 +459,95 @@ async def test_asking_for_several_things_is_still_one_sweep(client, admin_token)
     sweeps = [j for j in app.state.scheduler.get_jobs()
               if j.id == "sonarr_series_after_request"]
     assert len(sweeps) == 1
+
+
+# ── The id everything hangs on ──
+
+
+@respx.mock
+async def test_a_sonarr_row_without_a_tmdb_id_gets_one(client, admin_token):
+    """Sonarr's metadata is TVDB's and its tmdbId is usually empty, so a show
+    it has just added arrives here with no TMDB id — and every join between
+    Pinnarr and Overseerr keys on exactly that."""
+    from app.jobs.tmdb_sync import resolve_missing_tmdb_ids
+
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        sid = make_series(conn, "Just Added", tvdb_id=555, tmdb_id=None)
+
+    respx.get("https://api.themoviedb.org/3/find/555").mock(
+        return_value=httpx.Response(200, json={"tv_results": [{"id": 333}]})
+    )
+    assert await resolve_missing_tmdb_ids() == 1
+
+    with session() as conn:
+        assert conn.execute(
+            "SELECT tmdb_id FROM series WHERE id = ?", (sid,)
+        ).fetchone()["tmdb_id"] == 333
+
+
+@respx.mock
+async def test_resolving_the_id_is_what_makes_the_card_link_locally(client, admin_token):
+    """End to end: without the id the card points at TMDB for ever, however
+    long you wait, because nothing can match the series to the request."""
+    from app.jobs.tmdb_sync import resolve_missing_tmdb_ids
+
+    _, user_id = admin_token
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+        asked_for(conn, 333, status="available")
+        sid = make_series(conn, "Not Yours", tvdb_id=555, tmdb_id=None)
+
+    assert "here — pin it" not in client.get("/discover").text
+
+    respx.get("https://api.themoviedb.org/3/find/555").mock(
+        return_value=httpx.Response(200, json={"tv_results": [{"id": 333}]})
+    )
+    await resolve_missing_tmdb_ids()
+
+    body = client.get("/discover").text
+    assert f'href="/series/{sid}"' in body
+    assert "here — pin it" in body
+
+
+@respx.mock
+async def test_a_series_that_already_has_an_id_is_left_alone(client):
+    from app.jobs.tmdb_sync import resolve_missing_tmdb_ids
+
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        make_series(conn, "Known", tvdb_id=555, tmdb_id=999)
+    assert await resolve_missing_tmdb_ids() == 0
+
+
+@respx.mock
+async def test_tmdb_not_knowing_it_is_not_an_error(client):
+    from app.jobs.tmdb_sync import resolve_missing_tmdb_ids
+
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        make_series(conn, "Obscure", tvdb_id=555, tmdb_id=None)
+    respx.get("https://api.themoviedb.org/3/find/555").mock(
+        return_value=httpx.Response(200, json={"tv_results": []})
+    )
+    assert await resolve_missing_tmdb_ids() == 0
+
+
+@respx.mock
+async def test_ids_are_resolved_before_the_nightly_budget_bites(client):
+    """An unpinned show sorts last in the outlook pass, which is capped — so
+    queueing id resolution behind it could leave a new request waiting days."""
+    from app.jobs.tmdb_sync import sync_outlook
+
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        make_series(conn, "Just Added", tvdb_id=555, tmdb_id=None)
+    respx.get("https://api.themoviedb.org/3/find/555").mock(
+        return_value=httpx.Response(200, json={"tv_results": [{"id": 333}]})
+    )
+    respx.get("https://api.themoviedb.org/3/tv/333").mock(
+        return_value=httpx.Response(200, json={"status": "Ended", "in_production": False})
+    )
+    detail = await sync_outlook()
+    assert "1 TMDB id(s) resolved" in detail

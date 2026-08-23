@@ -23,6 +23,12 @@ log = logging.getLogger(__name__)
 #: name → coroutine, for the manual /api/sync/{job} trigger.
 REGISTRY: dict[str, Callable[[], Awaitable[Any]]] = {}
 
+#: Registered so they can be triggered — by hand, or scheduled once in
+#: response to something you did — but deliberately never on a cron. Named
+#: here rather than assumed, so the check that every registered job is
+#: scheduled can still tell a deliberate omission from a drifted one.
+ON_DEMAND: frozenset[str] = frozenset({"find_requested"})
+
 
 def tracked(name: str) -> Callable:
     def decorator(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:

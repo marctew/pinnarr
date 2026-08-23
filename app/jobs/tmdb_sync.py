@@ -61,6 +61,63 @@ async def _fetch_tmdb(
             return series_id, None
 
 
+async def resolve_missing_tmdb_ids(limit: int = 200) -> int:
+    """Fill in TMDB ids for series that arrived without one.
+
+    Sonarr's metadata is TVDB's, and its tmdbId is empty far more often than
+    not — so a show Sonarr has just added has no TMDB id at all. Everything
+    that talks to Overseerr keys on exactly that: a request you have just
+    made cannot be matched to the series it produced until this has run,
+    which is why it is worth doing on demand rather than only at 03:30.
+    """
+    with session() as conn:
+        rows = list(
+            conn.execute(
+                "SELECT id, tvdb_id FROM series "
+                "WHERE tmdb_id IS NULL AND tvdb_id IS NOT NULL LIMIT ?",
+                (limit,),
+            )
+        )
+    if not rows:
+        return 0
+
+    client = TmdbClient()
+    found = 0
+    for row in rows:
+        try:
+            tmdb_id = await client.find_by_tvdb(int(row["tvdb_id"]))
+        except UpstreamError as exc:
+            log.warning("TMDB lookup failed for series %s: %s", row["id"], exc)
+            continue
+        if not tmdb_id:
+            continue
+        with session() as conn:
+            conn.execute(
+                "UPDATE series SET tmdb_id = ? WHERE id = ? AND tmdb_id IS NULL",
+                (tmdb_id, row["id"]),
+            )
+        found += 1
+    return found
+
+
+@tracked("find_requested")
+async def find_requested() -> str:
+    """Go and look for something just asked for.
+
+    Overseerr tells Sonarr; this asks Sonarr what it now has and then gives
+    the new rows a TMDB id, because without one the show cannot be matched
+    back to the request that produced it and the card keeps pointing at TMDB
+    for ever.
+    """
+    from app.jobs.sonarr_sync import sync_sonarr_series
+
+    note = await sync_sonarr_series()
+    if not get_settings().tmdb_configured:
+        return f"{note}; TMDB not configured, so no ids resolved"
+    found = await resolve_missing_tmdb_ids()
+    return f"{note}; {found} TMDB id(s) resolved"
+
+
 @tracked("tmdb_status")
 async def sync_outlook() -> str:
     settings = get_settings()
@@ -77,6 +134,14 @@ async def sync_outlook() -> str:
 
     if not rows:
         return "no series yet"
+
+    # Before the budget bites. Resolving an id is one cheap call and is what
+    # everything joining Pinnarr to Overseerr keys on, so it must not queue
+    # behind four hundred outlook lookups on a two thousand series library —
+    # an unpinned show sorts last there and could wait days for an id.
+    resolved = 0
+    if settings.tmdb_configured:
+        resolved = await resolve_missing_tmdb_ids()
 
     # ── Tier 2: TMDB enrichment, budget-limited ──
     enriched: dict[int, TmdbShow] = {}
@@ -145,4 +210,7 @@ async def sync_outlook() -> str:
             counts[outlook] = counts.get(outlook, 0) + 1
 
     summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
-    return f"{len(rows)} series ({len(enriched)} TMDB-enriched): {summary}"
+    note = f"{len(rows)} series ({len(enriched)} TMDB-enriched): {summary}"
+    if resolved:
+        note += f"; {resolved} TMDB id(s) resolved"
+    return note

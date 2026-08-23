@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.db import session
 from app.episodes import decorate
 from app.episodes import parse as parse_dt
-from app.jobs import sonarr_sync
+from app.jobs import tmdb_sync
 from app.repo import (
     COLD_MONTHS,
     READY_DAYS,
@@ -267,12 +267,13 @@ LOOKUP_DELAY_SECONDS = 45
 
 
 def _look_for_it_soon(request: Request) -> None:
-    """Nudge the Sonarr sweep so a requested show turns up here in minutes.
+    """Go and look for a requested show rather than waiting until 03:10.
 
-    Requesting creates nothing locally: Overseerr tells Sonarr, and Pinnarr
-    only learns of the series when sonarr_series next runs — which is at ten
-    past three in the morning. Waiting that long to see what you just asked
-    for is the difference between a feature and a form.
+    Two steps, and the second is the one that matters. Sonarr adds the show,
+    but its metadata is TVDB's and its tmdbId is usually empty — so the new
+    row arrives with no TMDB id, and everything joining Pinnarr to Overseerr
+    keys on exactly that. Without resolving it the card keeps pointing at
+    TMDB no matter how long you wait.
 
     One fixed job id with replace_existing, so asking for six things in a row
     is one sweep rather than six walks of a two thousand series library.
@@ -282,7 +283,7 @@ def _look_for_it_soon(request: Request) -> None:
         return
     with suppress(Exception):
         scheduler.add_job(
-            sonarr_sync.sync_sonarr_series,
+            tmdb_sync.find_requested,
             DateTrigger(
                 run_date=datetime.now(UTC) + timedelta(seconds=LOOKUP_DELAY_SECONDS)
             ),
