@@ -84,6 +84,60 @@
     this one is about what you've forgotten you own.</p>
 {% endcall %}
 
+{% if asked %}
+  <details class="pane" data-pane="asked" open>
+    <summary>Asked for<span class="count">{{ asked|length }}</span></summary>
+    <p class="hint">Requests Overseerr is working on. Asking doesn't create
+      anything here — Overseerr tells Sonarr, and Pinnarr only learns of the
+      show when the Sonarr sync next runs, which it does shortly after you
+      ask. Once it has landed the title links here and you can pin it.</p>
+    <div class="grid">
+      {% for a in asked %}
+        {% set title = a['local_title'] or a['remembered_title'] or 'Requested show' %}
+        <article class="card want{{ ' here' if a['series_id'] }}" id="asked-{{ a['tmdb_id'] }}">
+          <div class="thumb">
+            {% if a['series_id'] %}
+              <a class="poster" href="/series/{{ a['series_id'] }}">
+                <img src="/poster/{{ a['series_id'] }}" alt="{{ title }}" loading="lazy"
+                     width="200" height="300">
+              </a>
+              <button type="button" class="pin" onclick="togglePin({{ a['series_id'] }})"
+                      aria-pressed="false" title="Pin {{ title }}">
+                <span class="glyph">📌</span>
+                <span class="sr">Pin {{ title }}</span>
+              </button>
+            {% else %}
+              <span class="poster">
+                {% if a['poster_path'] %}
+                  <img src="/poster/tmdb?path={{ a['poster_path'] | urlencode }}"
+                       alt="{{ title }}" loading="lazy" width="200" height="300">
+                {% else %}
+                  <span class="noposter">{{ title[:1] }}</span>
+                {% endif %}
+              </span>
+            {% endif %}
+          </div>
+          <h4>
+            {% if a['series_id'] %}
+              <a href="/series/{{ a['series_id'] }}">{{ title }}</a>
+            {% else %}
+              <a href="https://www.themoviedb.org/tv/{{ a['tmdb_id'] }}"
+                 target="_blank" rel="noopener noreferrer">{{ title }}</a>
+            {% endif %}
+          </h4>
+          <p class="asked-state {{ 'here' if a['series_id'] }}">
+            {%- if a['series_id'] %}here — pin it
+            {%- else %}{{ a['status'] }}{% endif -%}
+          </p>
+          {% if a['requested_by'] %}
+            <p class="hint because">asked for by {{ a['requested_by'] }}</p>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  </details>
+{% endif %}
+
 {% if wanted %}
   <details class="pane" data-pane="wanted">
     <summary>Not in your library<span class="count">{{ wanted|length }}</span></summary>

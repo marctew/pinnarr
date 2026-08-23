@@ -334,3 +334,128 @@ async def test_without_a_key_the_tester_says_links_only(client):
     body = client.post("/api/settings/test/overseerr").json()
     assert body["ok"] is True
     assert "add an api key" in body["message"].lower()
+
+
+# ── Following a request until it lands ──
+
+
+def asked_for(conn, tmdb_id, status="processing", who="marc"):
+    conn.execute(
+        "INSERT INTO overseerr_media (tmdb_id, status, requested_by, updated_at) "
+        "VALUES (?, ?, ?, ?)", (tmdb_id, status, who, utcnow()),
+    )
+
+
+def test_requesting_creates_no_series_row(client, admin_token):
+    """The thing to be clear about: Overseerr tells Sonarr, Sonarr adds the
+    show, and Pinnarr only learns of it when the Sonarr sync next runs."""
+    from app.repo import requested
+
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        asked_for(conn, 333)
+        row = requested(conn, user_id)[0]
+    assert row["series_id"] is None
+    assert row["remembered_title"] == "Not Yours"
+    assert row["status"] == "processing"
+
+
+def test_once_sonarr_has_it_the_row_appears_and_links_locally(client, admin_token):
+    from app.repo import requested
+
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        asked_for(conn, 333, status="available")
+        # What the Sonarr sweep does when it finally sees it.
+        landed = make_series(conn, "Not Yours", tmdb_id=333)
+        row = requested(conn, user_id)[0]
+    assert row["series_id"] == landed
+
+    body = client.get("/discover").text
+    assert f'href="/series/{landed}"' in body
+    assert "here — pin it" in body
+
+
+def test_pinning_it_closes_the_loop(client, admin_token):
+    """The section is for requests you have not dealt with. Pinning is
+    dealing with it."""
+    from app.repo import requested
+
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        asked_for(conn, 333)
+        landed = make_series(conn, "Not Yours", tmdb_id=333)
+        assert len(requested(conn, user_id)) == 1
+        pin(conn, user_id, landed)
+        assert requested(conn, user_id) == []
+
+
+def test_media_nobody_asked_for_is_not_listed(client, admin_token):
+    """Overseerr knows about everything in the library, most of which was
+    imported rather than requested."""
+    from app.repo import requested
+
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        asked_for(conn, 333, who=None)
+        assert requested(conn, user_id) == []
+
+
+def test_arrived_requests_sort_above_ones_still_coming(client, admin_token):
+    from app.repo import requested
+
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        asked_for(conn, 333, status="processing")
+        asked_for(conn, 444, status="available")
+        make_series(conn, "Landed", tmdb_id=444)
+        rows = requested(conn, user_id)
+    assert [r["tmdb_id"] for r in rows] == [444, 333]
+
+
+def test_the_asked_for_section_is_hidden_without_a_key(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+        asked_for(conn, 333)
+    save_settings({"overseerr_api_key": ""})
+    assert "Asked for" not in client.get("/discover").text
+
+
+@respx.mock
+async def test_a_request_nudges_the_sonarr_sweep(client, admin_token):
+    """Waiting until ten past three to see what you just asked for is the
+    difference between a feature and a form."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    client.post("/api/request/333")
+
+    scheduled = {j.id for j in app.state.scheduler.get_jobs()}
+    assert "sonarr_series_after_request" in scheduled
+
+
+@respx.mock
+async def test_asking_for_several_things_is_still_one_sweep(client, admin_token):
+    """A fixed job id with replace_existing, so six requests in a sitting do
+    not become six walks of a two thousand series library."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    for tmdb_id in (333, 444, 555):
+        client.post(f"/api/request/{tmdb_id}")
+
+    sweeps = [j for j in app.state.scheduler.get_jobs()
+              if j.id == "sonarr_series_after_request"]
+    assert len(sweeps) == 1

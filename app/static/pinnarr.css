@@ -753,3 +753,14 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
   margin: .3rem 0 0; font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ── Asked for ─────────────────────────────────── */
+.asked-state {
+  margin: .3rem 0 0; font-size: 11.5px; text-align: center;
+  padding: .18rem .5rem; border-radius: 999px;
+  border: 1px solid var(--warn); color: var(--warn);
+}
+/* Arrived reads differently from on its way — the first is something to do,
+   the second is something to wait for. */
+.asked-state.here { border-color: var(--ok); color: var(--ok); font-weight: 600; }
+.card.want.here { border-color: var(--ok); }

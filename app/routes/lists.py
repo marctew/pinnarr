@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import suppress
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from apscheduler.triggers.date import DateTrigger
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -17,6 +18,7 @@ from app.config import get_settings
 from app.db import session
 from app.episodes import decorate
 from app.episodes import parse as parse_dt
+from app.jobs import sonarr_sync
 from app.repo import (
     COLD_MONTHS,
     READY_DAYS,
@@ -34,6 +36,7 @@ from app.repo import (
     pinned_count,
     plex_shortfall,
     ready_to_watch,
+    requested,
     retire,
     section_titles,
     suggested,
@@ -252,7 +255,42 @@ async def request_show(request: Request, tmdb_id: int) -> JSONResponse:
 
     with session() as conn:
         note_request(conn, tmdb_id, status, user["username"])
+
+    _look_for_it_soon(request)
     return JSONResponse({"ok": True, "status": status, "detail": f"Requested — {status}."})
+
+
+#: How long to wait before asking Sonarr what it has. Long enough for
+#: Overseerr to have told it and for a batch of requests made in one sitting
+#: to collapse into a single sweep.
+LOOKUP_DELAY_SECONDS = 45
+
+
+def _look_for_it_soon(request: Request) -> None:
+    """Nudge the Sonarr sweep so a requested show turns up here in minutes.
+
+    Requesting creates nothing locally: Overseerr tells Sonarr, and Pinnarr
+    only learns of the series when sonarr_series next runs — which is at ten
+    past three in the morning. Waiting that long to see what you just asked
+    for is the difference between a feature and a form.
+
+    One fixed job id with replace_existing, so asking for six things in a row
+    is one sweep rather than six walks of a two thousand series library.
+    """
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is None:
+        return
+    with suppress(Exception):
+        scheduler.add_job(
+            sonarr_sync.sync_sonarr_series,
+            DateTrigger(
+                run_date=datetime.now(UTC) + timedelta(seconds=LOOKUP_DELAY_SECONDS)
+            ),
+            id="sonarr_series_after_request",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
 
 
 @router.get("/discover")
@@ -281,6 +319,11 @@ async def discover(request: Request):
             if get_settings().overseerr_requests_enabled
             else []
         )
+        asked = (
+            requested(conn, user_id)
+            if get_settings().overseerr_requests_enabled
+            else []
+        )
         sections = section_titles(conn)
 
     return templates.TemplateResponse(
@@ -292,6 +335,7 @@ async def discover(request: Request):
             "announced": announced,
             "suggestions": suggestions,
             "wanted": missing,
+            "asked": asked,
             "statuses": REQUESTED,
             "counts": counts,
             "sections": sections,

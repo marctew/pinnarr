@@ -1516,6 +1516,46 @@ def wanted(conn: sqlite3.Connection, user_id: int,
     )
 
 
+def requested(conn: sqlite3.Connection, user_id: int,
+              limit: int = 24) -> list[sqlite3.Row]:
+    """What has been asked for, and whether it has reached you yet.
+
+    Requesting does not create a series row. Overseerr tells Sonarr, Sonarr
+    adds the show, and Pinnarr only learns of it when sonarr_series next
+    runs — so between asking and arriving there is nothing local to link to,
+    and this is the only place that says where a request got to.
+
+    Drops out once you pin it, which is the point at which the loop that
+    started with "I want this" has closed.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT o.tmdb_id, o.status, o.requested_by,
+                   s.id AS series_id, s.title AS local_title, s.outlook,
+                   r.title AS remembered_title, r.poster_path, r.first_air_date
+            FROM overseerr_media o
+            LEFT JOIN series s ON s.tmdb_id = o.tmdb_id
+            LEFT JOIN (
+                SELECT tmdb_id, max(title) AS title, max(poster_path) AS poster_path,
+                       max(first_air_date) AS first_air_date
+                FROM recommendations GROUP BY tmdb_id
+            ) r ON r.tmdb_id = o.tmdb_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pins p
+                WHERE p.series_id = s.id AND p.user_id = :uid
+            )
+            -- Something Overseerr imported from the library and nobody
+            -- asked for is not news; a request with a name on it is.
+            AND o.requested_by IS NOT NULL
+            ORDER BY (s.id IS NOT NULL) DESC, o.updated_at DESC
+            LIMIT :limit
+            """,
+            {"uid": user_id, "limit": limit},
+        )
+    )
+
+
 def store_media_states(conn: sqlite3.Connection, states: dict) -> int:
     """Replace what Overseerr says. Wholesale, because a request that has
     been cancelled there should not linger here as pending."""
