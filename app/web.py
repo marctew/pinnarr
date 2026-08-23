@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import labels
 from app.config import get_settings
-from app.links import plex_episode
+from app.links import overseerr_person, overseerr_search, plex_episode
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -52,6 +52,8 @@ templates.env.globals.update(
     relative_day=labels.relative_day,
     since=labels.since,
     plex_episode=plex_episode,
+    overseerr_person=overseerr_person,
+    overseerr_search=overseerr_search,
     version=ASSET_VERSION,
     duration=labels.duration,
     OUTLOOK=labels.OUTLOOK,

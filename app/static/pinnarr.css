@@ -714,3 +714,22 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
 .tick:hover, .seasonmark:hover { border-color: var(--ok); color: var(--ok); opacity: 1; }
 .ep.seen .tick { color: var(--ok); opacity: .5; }
 .ep.seen .tick:hover { border-color: var(--warn); color: var(--warn); }
+
+/* ── Right-click menu ──────────────────────────── */
+.ctx {
+  position: fixed; z-index: 50; min-width: 15rem;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / .25); padding: .3rem;
+}
+.ctx-head {
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  padding: .35rem .6rem .45rem; border-bottom: 1px solid var(--line);
+  margin-bottom: .3rem;
+}
+.ctx a {
+  display: block; padding: .4rem .6rem; border-radius: 5px;
+  font-size: 13px; color: var(--ink); text-decoration: none;
+}
+.ctx a:hover { background: var(--bg); color: var(--accent); }
+/* A right-clickable name earns a hint that it is one, without shouting. */
+[data-person] { cursor: context-menu; }

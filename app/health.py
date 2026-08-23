@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.clients.http import UpstreamError
+from app.clients.http import UpstreamError, request_json
 from app.clients.plex import PlexClient
 from app.clients.sonarr import SonarrClient
 from app.clients.tautulli import TautulliClient
@@ -108,12 +108,34 @@ async def _test_ntfy() -> dict[str, Any]:
     return _ok(f"Test notification pushed to {s.ntfy_topic}. Check your phone.")
 
 
+async def _test_overseerr() -> dict[str, Any]:
+    """Prove the URL is really an Overseerr before anyone right-clicks it.
+
+    /api/v1/status needs no key, which is the whole reason this integration
+    needs no key either.
+    """
+    s = get_settings()
+    if not s.overseerr_configured:
+        return _fail("No URL saved yet.")
+    data = await request_json(
+        "overseerr", "GET", f"{s.overseerr_url}/api/v1/status"
+    )
+    version = (data or {}).get("version")
+    if not version:
+        return _fail(
+            f"{s.overseerr_url} answered, but not like an Overseerr. "
+            "Check the URL points at Overseerr itself, not a reverse proxy path."
+        )
+    return _ok(f"Connected to Overseerr {version}.")
+
+
 _TESTS = {
     "plex": _test_plex,
     "sonarr": _test_sonarr,
     "tautulli": _test_tautulli,
     "tmdb": _test_tmdb,
     "ntfy": _test_ntfy,
+    "overseerr": _test_overseerr,
 }
 
 

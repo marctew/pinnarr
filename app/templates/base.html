@@ -28,5 +28,67 @@
   {% endif %}
 </header>
 <main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
+<!-- One menu for the whole page, wired to anything carrying data-person.
+     Built here rather than per-template so the series page, the person page
+     and anywhere cast turns up next all behave the same. -->
+<div class="ctx" id="ctx" hidden role="menu" aria-label="Cast member"></div>
+<script>
+  (function () {
+    const menu = document.getElementById('ctx');
+    if (!menu) return;
+
+    function close() { menu.hidden = true; menu.innerHTML = ''; }
+
+    function open(x, y, name, items) {
+      menu.innerHTML = '';
+      const head = document.createElement('div');
+      head.className = 'ctx-head';
+      head.textContent = name;
+      menu.append(head);
+      for (const item of items) {
+        const a = document.createElement('a');
+        a.href = item.href;
+        a.role = 'menuitem';
+        a.textContent = item.label;
+        if (item.external) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+        a.onclick = close;
+        menu.append(a);
+      }
+      // Placed after measuring, so a name near the right edge does not open
+      // a menu half off the screen.
+      menu.hidden = false;
+      const box = menu.getBoundingClientRect();
+      const left = Math.min(x, window.innerWidth - box.width - 8);
+      const top = Math.min(y, window.innerHeight - box.height - 8);
+      menu.style.left = Math.max(8, left) + 'px';
+      menu.style.top = Math.max(8, top) + 'px';
+    }
+
+    document.addEventListener('contextmenu', e => {
+      const target = e.target.closest('[data-person]');
+      if (!target) { close(); return; }
+      e.preventDefault();
+
+      const id = target.dataset.person;
+      const name = target.dataset.personName || target.textContent.trim();
+      const items = [{ label: 'Everything of yours they are in', href: '/person/' + id }];
+      if (target.dataset.overseerr) {
+        items.push({ label: 'Look up on Overseerr', href: target.dataset.overseerr,
+                     external: true });
+      }
+      if (target.dataset.overseerrSearch) {
+        items.push({ label: 'Search Overseerr for the name',
+                     href: target.dataset.overseerrSearch, external: true });
+      }
+      items.push({ label: 'Open on TMDB', external: true,
+                   href: 'https://www.themoviedb.org/person/' + id });
+      open(e.clientX, e.clientY, name, items);
+    });
+
+    document.addEventListener('click', close);
+    document.addEventListener('scroll', close, true);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  })();
+</script>
 </body>
 </html>

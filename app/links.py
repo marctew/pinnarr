@@ -38,6 +38,27 @@ def plex_episode(rating_key: str | None) -> str | None:
     return f"{base}/web/index.html#!/server/{machine}/details?key={path}"
 
 
+def overseerr_person(tmdb_person_id: int | None) -> str | None:
+    """Overseerr's page for one person.
+
+    Overseerr routes people by TMDB id, which is the same id Pinnarr already
+    stores against a credit — so this is an exact link rather than a search
+    that hopes for the best.
+    """
+    base = get_settings().overseerr_url
+    if not (base and tmdb_person_id):
+        return None
+    return f"{base}/person/{int(tmdb_person_id)}"
+
+
+def overseerr_search(term: str | None) -> str | None:
+    """Overseerr's search, for when a name is all there is."""
+    base = get_settings().overseerr_url
+    if not (base and term):
+        return None
+    return f"{base}/search?query={quote(term)}"
+
+
 def sonarr(row: Any) -> str | None:
     """Sonarr routes its series pages by slug, not by id."""
     base = get_settings().sonarr_url

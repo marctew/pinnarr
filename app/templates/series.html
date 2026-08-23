@@ -122,7 +122,13 @@
           {% endif %}
         </a>
         <span class="body">
-          <a class="show" href="/person/{{ item.person['tmdb_person_id'] }}">{{ item.person['name'] }}</a>
+          <a class="show" href="/person/{{ item.person['tmdb_person_id'] }}"
+             data-person="{{ item.person['tmdb_person_id'] }}"
+             data-person-name="{{ item.person['name'] }}"
+             {% set look = overseerr_person(item.person['tmdb_person_id']) %}
+             {% if look %}data-overseerr="{{ look }}"
+             data-overseerr-search="{{ overseerr_search(item.person['name']) }}"{% endif %}
+             title="Right-click for more">{{ item.person['name'] }}</a>
           {% if item.person['character'] %}<span class="as">as {{ item.person['character'] }}</span>{% endif %}
           <span class="from">
             you've seen them in
@@ -152,7 +158,13 @@
             {% endif %}
           </a>
           <span class="body">
-            <a class="show" href="/person/{{ member['tmdb_person_id'] }}">{{ member['name'] }}</a>
+            <a class="show" href="/person/{{ member['tmdb_person_id'] }}"
+               data-person="{{ member['tmdb_person_id'] }}"
+               data-person-name="{{ member['name'] }}"
+               {% set look = overseerr_person(member['tmdb_person_id']) %}
+               {% if look %}data-overseerr="{{ look }}"
+               data-overseerr-search="{{ overseerr_search(member['name']) }}"{% endif %}
+               title="Right-click for more">{{ member['name'] }}</a>
             {% if member['character'] %}<span class="as">{{ member['character'] }}</span>{% endif %}
             <span class="from">
               {%- if member['elsewhere'] %}in {{ member['elsewhere'] }} other thing{{ '' if member['elsewhere'] == 1 else 's' }} you own

@@ -4,7 +4,17 @@
 
 {% block content %}
 <p class="crumb"><a href="/library">‹ Library</a></p>
-<h1>{{ who['name'] }}</h1>
+{% set look = overseerr_person(who['tmdb_person_id']) %}
+<h1 data-person="{{ who['tmdb_person_id'] }}" data-person-name="{{ who['name'] }}"
+    {% if look %}data-overseerr="{{ look }}"
+    data-overseerr-search="{{ overseerr_search(who['name']) }}"{% endif %}>
+  {{ who['name'] }}</h1>
+{% if look %}
+  <p class="actions">
+    <a class="ext" href="{{ look }}" target="_blank" rel="noopener noreferrer">
+      Look up on Overseerr ↗</a>
+  </p>
+{% endif %}
 <p class="lede">
   {% if seen %}
     You've watched <strong>{{ seen|length }}</strong> of the

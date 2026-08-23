@@ -106,6 +106,18 @@
   </fieldset>
 
   <fieldset>
+    <legend><h2>Overseerr</h2></legend>
+    <label>URL
+      <input type="url" name="overseerr_url" value="{{ s.overseerr_url }}"
+             placeholder="http://192.168.4.10:5055">
+    </label>
+    <p class="hint">Optional, and link-only — right-clicking a cast member
+      offers to look them up there. Pinnarr never calls Overseerr, so there
+      is no API key to give it.</p>
+    {{ tester("overseerr", "Overseerr") }}
+  </fieldset>
+
+  <fieldset>
     <legend><h2>Notifications</h2></legend>
     <div class="row">
       <label>ntfy server

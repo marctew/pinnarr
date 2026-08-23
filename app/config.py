@@ -69,6 +69,12 @@ class Settings(BaseModel):
     # ── TMDB ─────────────────────────────────────
     tmdb_api_key: str = ""
 
+    # ── Overseerr ────────────────────────────────
+    #: URL only. Pinnarr links out to it and never calls it, so there is
+    #: nothing for a key to authenticate — and an unused credential in the
+    #: settings table is a thing to leak, not a feature.
+    overseerr_url: str = ""
+
     # ── Notifications ────────────────────────────
     ntfy_url: str = "https://ntfy.sh"
     ntfy_topic: str = ""
@@ -107,7 +113,7 @@ class Settings(BaseModel):
         return v
 
     @field_validator(
-        "plex_url", "sonarr_url", "tautulli_url", "ntfy_url",
+        "plex_url", "sonarr_url", "tautulli_url", "ntfy_url", "overseerr_url",
         mode="before",
     )
     @classmethod
@@ -131,6 +137,10 @@ class Settings(BaseModel):
     @property
     def tmdb_configured(self) -> bool:
         return bool(self.tmdb_api_key)
+
+    @property
+    def overseerr_configured(self) -> bool:
+        return bool(self.overseerr_url)
 
     @property
     def ntfy_configured(self) -> bool:
