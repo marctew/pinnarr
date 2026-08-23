@@ -1556,6 +1556,61 @@ def requested(conn: sqlite3.Connection, user_id: int,
     )
 
 
+def upsert_requested_series(conn: sqlite3.Connection, summary: dict) -> int:
+    """A series row for something you have asked for but do not yet have.
+
+    Requesting is a decision, and a decision deserves somewhere to live. The
+    row carries no sonarr_id and no Plex key, which every other query already
+    copes with — a show Sonarr manages but Plex has not indexed is the same
+    shape, and has existed since the first sync.
+
+    Matched by every id we have, so when Sonarr adds the show for real its
+    sweep lands on this row rather than beside it.
+    """
+    series_id, _confidence = resolve_series_id(
+        conn,
+        tvdb_id=summary.get("tvdb_id"),
+        tmdb_id=summary.get("tmdb_id"),
+        imdb_id=summary.get("imdb_id"),
+        title=summary.get("title"),
+        year=summary.get("year"),
+    )
+    if series_id is not None:
+        # Already known — fill in anything it was missing rather than
+        # overwriting what Sonarr or Plex have said.
+        _apply(
+            conn,
+            series_id,
+            {
+                "tmdb_id": summary.get("tmdb_id"),
+                "tvdb_id": summary.get("tvdb_id"),
+                "imdb_id": summary.get("imdb_id"),
+            },
+            overwrite=False,
+        )
+        return series_id
+
+    title = summary.get("title") or "Requested show"
+    now = utcnow()
+    cur = conn.execute(
+        """
+        INSERT INTO series (
+            tmdb_id, tvdb_id, imdb_id, title, sort_title, year, overview,
+            remote_poster, in_sonarr, in_plex, match_confidence,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'exact', ?, ?)
+        """,
+        (
+            summary.get("tmdb_id"), summary.get("tvdb_id"), summary.get("imdb_id"),
+            title, title.lower(), summary.get("year"), summary.get("overview"),
+            f"https://image.tmdb.org/t/p/w342{summary['poster_path']}"
+            if summary.get("poster_path") else None,
+            now, now,
+        ),
+    )
+    return int(cur.lastrowid or 0)
+
+
 def store_media_states(conn: sqlite3.Connection, states: dict) -> int:
     """Replace what Overseerr says. Wholesale, because a request that has
     been cancelled there should not linger here as pending."""

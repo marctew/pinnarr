@@ -116,6 +116,27 @@ class TmdbClient:
                 )
         return out
 
+    async def show_summary(self, tmdb_id: int) -> dict[str, Any]:
+        """Enough to stand a series row up before anything else has it.
+
+        The external ids matter more than the name here. Sonarr matches on
+        tvdb_id before anything else, so a row created from TMDB without one
+        would not be recognised as the same show when Sonarr finally adds it
+        — and you would end up with two.
+        """
+        data = await self._get(f"/tv/{tmdb_id}", append_to_response="external_ids") or {}
+        external = data.get("external_ids") or {}
+        first_air = data.get("first_air_date") or ""
+        return {
+            "tmdb_id": tmdb_id,
+            "title": data.get("name") or "",
+            "year": int(first_air[:4]) if first_air[:4].isdigit() else None,
+            "overview": data.get("overview") or None,
+            "poster_path": data.get("poster_path"),
+            "tvdb_id": int(external["tvdb_id"]) if external.get("tvdb_id") else None,
+            "imdb_id": external.get("imdb_id") or None,
+        }
+
     async def tv_credits(self, person_id: int, limit: int = 60) -> list[dict[str, Any]]:
         """Everything on television one person has been in.
 

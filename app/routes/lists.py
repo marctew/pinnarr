@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from app import labels
 from app.clients.http import UpstreamError
 from app.clients.overseerr import REQUESTED, OverseerrClient
+from app.clients.tmdb import TmdbClient
 from app.config import get_settings
 from app.db import session
 from app.episodes import decorate
@@ -41,6 +42,7 @@ from app.repo import (
     section_titles,
     suggested,
     undo_retire,
+    upsert_requested_series,
     wanted,
 )
 from app.web import now_local, templates
@@ -253,11 +255,33 @@ async def request_show(request: Request, tmdb_id: int) -> JSONResponse:
             {"ok": False, "detail": f"Overseerr said no: {exc}"}, status_code=409
         )
 
+    # A request is a decision, and a decision deserves somewhere to live.
+    # Without a row there is nothing to link to, nothing to pin, and no
+    # answer to "what did I ask for" beyond a name on a card.
+    series_id = None
+    try:
+        summary = await TmdbClient().show_summary(tmdb_id)
+    except UpstreamError as exc:
+        # The request itself succeeded. Losing the page for it is a smaller
+        # failure than pretending the request did not happen.
+        log.warning("no TMDB summary for %s: %s", tmdb_id, exc)
+        summary = None
+
     with session() as conn:
         note_request(conn, tmdb_id, status, user["username"])
+        if summary:
+            series_id = upsert_requested_series(conn, summary)
 
     _look_for_it_soon(request)
-    return JSONResponse({"ok": True, "status": status, "detail": f"Requested — {status}."})
+    return JSONResponse(
+        {
+            "ok": True,
+            "status": status,
+            "series_id": series_id,
+            "url": f"/series/{series_id}" if series_id else None,
+            "detail": f"Requested — {status}.",
+        }
+    )
 
 
 #: How long to wait before asking Sonarr what it has. Long enough for

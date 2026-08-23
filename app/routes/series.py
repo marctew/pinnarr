@@ -247,6 +247,10 @@ async def series_detail(request: Request, series_id: int):
         up_next = next_unwatched(conn, viewer, series_id)
         genres = genres_for(conn, series_id)
         prefs = pin_preferences(conn, viewer, series_id)
+        # A show that only exists here because somebody asked for it has no
+        # episodes and no Sonarr entry, and would otherwise read as broken
+        # rather than as pending.
+        asked = media_state(conn, row["tmdb_id"]) if row["tmdb_id"] else None
         players = cast_for(conn, series_id, viewer)
         familiar = familiar_faces(conn, series_id, viewer)
 
@@ -270,6 +274,8 @@ async def series_detail(request: Request, series_id: int):
             "up_next": decorate(up_next, now=now, tz=str(tz)) if up_next else None,
             "progress": progress,
             "prefs": prefs,
+            "asked": asked,
+            "awaiting": asked is not None and not row["in_sonarr"] and not seasons,
             "cast": players,
             "familiar": familiar,
         },

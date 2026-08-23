@@ -186,7 +186,14 @@
   {% endif %}
 </h2>
 
-{% if not s['episodes_synced_at'] %}
+{% if awaiting %}
+  <p class="flash ok">Requested{% if asked['requested_by'] %} by {{ asked['requested_by'] }}{% endif %} —
+    Overseerr says <strong>{{ asked['status'] }}</strong>. Nothing has arrived yet, so
+    there is nothing to list. Pin it now and it lands on your calendar the
+    moment it does.</p>
+{% endif %}
+
+{% if not s['episodes_synced_at'] and not awaiting %}
   <p class="hint">Only the synced window is here — the nightly calendar job
     covers −7 to +60 days. Load the full guide to pull every season from Sonarr.</p>
 {% endif %}

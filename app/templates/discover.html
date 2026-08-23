@@ -155,20 +155,7 @@
 {% endcall %}
 
 <script>
-  async function requestShow(id) {
-    const btn = document.getElementById('req-' + id);
-    btn.disabled = true;
-    btn.textContent = 'Asking…';
-    try {
-      const r = await fetch('/api/request/' + id, { method: 'POST' });
-      const data = await r.json();
-      if (r.ok) {
-        // Replaced rather than re-enabled: asking twice is the one thing a
-        // request button should make impossible.
-        const note = document.createElement('p');
-        note.className = 'asked';
-        note.textContent = data.status;
-        btn.replaceWith(note);
+        }
       } else {
         btn.textContent = '✕ ' + (data.detail || r.status);
         btn.disabled = false;

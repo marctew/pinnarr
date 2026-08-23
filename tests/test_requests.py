@@ -551,3 +551,175 @@ async def test_ids_are_resolved_before_the_nightly_budget_bites(client):
     )
     detail = await sync_outlook()
     assert "1 TMDB id(s) resolved" in detail
+
+
+# ── A request gets a page of its own ──
+
+
+TMDB_API = "https://api.themoviedb.org/3"
+
+
+def summary_response(tmdb_id=333, tvdb_id=777, name="Not Yours"):
+    return httpx.Response(200, json={
+        "id": tmdb_id,
+        "name": name,
+        "first_air_date": "2019-05-01",
+        "overview": "Something you asked for.",
+        "poster_path": "/p.jpg",
+        "external_ids": {"tvdb_id": tvdb_id, "imdb_id": "tt123"},
+    })
+
+
+@respx.mock
+async def test_requesting_creates_a_page_to_link_to(client, admin_token):
+    """A request is a decision, and a decision deserves somewhere to live.
+    Without a row there is nothing to link to and nothing to pin."""
+    _, user_id = admin_token
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    respx.get(f"{TMDB_API}/tv/333").mock(return_value=summary_response())
+
+    body = client.post("/api/request/333").json()
+    assert body["series_id"]
+    assert body["url"] == f"/series/{body['series_id']}"
+
+    page = client.get(body["url"])
+    assert page.status_code == 200
+    assert "Not Yours" in page.text
+
+
+@respx.mock
+async def test_the_page_says_it_has_not_arrived_rather_than_looking_broken(
+    client, admin_token
+):
+    _, user_id = admin_token
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    respx.get(f"{TMDB_API}/tv/333").mock(return_value=summary_response())
+
+    url = client.post("/api/request/333").json()["url"]
+    body = client.get(url).text
+    assert "Requested" in body
+    assert "pending" in body
+    assert "nothing to list" in body
+
+
+@respx.mock
+async def test_the_row_carries_the_tvdb_id_so_sonarr_lands_on_it(client, admin_token):
+    """Sonarr matches on tvdb_id before anything else. A row created from
+    TMDB without one would not be recognised as the same show, and you would
+    end up with two."""
+    _, user_id = admin_token
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    respx.get(f"{TMDB_API}/tv/333").mock(return_value=summary_response(tvdb_id=777))
+    series_id = client.post("/api/request/333").json()["series_id"]
+
+    with session() as conn:
+        row = conn.execute(
+            "SELECT tvdb_id, tmdb_id, in_sonarr, in_plex FROM series WHERE id = ?",
+            (series_id,),
+        ).fetchone()
+    assert row["tvdb_id"] == 777
+    assert row["tmdb_id"] == 333
+    assert row["in_sonarr"] == 0
+
+
+@respx.mock
+async def test_when_sonarr_adds_it_the_rows_merge(client, admin_token):
+    """The whole reason for fetching the external ids: one show, one row."""
+    from app.clients.sonarr import SonarrSeries
+    from app.repo import upsert_from_sonarr
+
+    _, user_id = admin_token
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    respx.get(f"{TMDB_API}/tv/333").mock(return_value=summary_response(tvdb_id=777))
+    series_id = client.post("/api/request/333").json()["series_id"]
+
+    with session() as conn:
+        before = conn.execute("SELECT count(*) AS n FROM series").fetchone()["n"]
+        # Sonarr, with no tmdbId of its own, as usual.
+        landed = upsert_from_sonarr(conn, SonarrSeries(
+            sonarr_id=42, tvdb_id=777, tmdb_id=None, imdb_id=None,
+            title="Not Yours", sort_title="not yours", year=2019, status="continuing",
+            network="BBC", overview="", monitored=True, next_airing=None,
+            previous_airing=None, latest_season=1,
+        ))
+        after = conn.execute("SELECT count(*) AS n FROM series").fetchone()["n"]
+
+    assert landed == series_id
+    assert after == before
+
+
+@respx.mock
+async def test_a_show_already_in_the_library_is_not_duplicated(client, admin_token):
+    _, user_id = admin_token
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+        existing = make_series(conn, "Already Here", tvdb_id=777, tmdb_id=None)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    respx.get(f"{TMDB_API}/tv/333").mock(return_value=summary_response(tvdb_id=777))
+
+    assert client.post("/api/request/333").json()["series_id"] == existing
+    with session() as conn:
+        # And it gained the id it was missing, which is what made it
+        # unmatchable to Overseerr in the first place.
+        assert conn.execute(
+            "SELECT tmdb_id FROM series WHERE id = ?", (existing,)
+        ).fetchone()["tmdb_id"] == 333
+
+
+@respx.mock
+async def test_a_requested_show_can_be_pinned_before_it_arrives(client, admin_token):
+    """Which is the point of having a row at all."""
+    _, user_id = admin_token
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    respx.get(f"{TMDB_API}/tv/333").mock(return_value=summary_response())
+    series_id = client.post("/api/request/333").json()["series_id"]
+
+    assert client.post(f"/api/series/{series_id}/pin").json()["pinned"] is True
+
+
+@respx.mock
+async def test_tmdb_failing_does_not_lose_the_request(client, admin_token):
+    """The request succeeded. Losing the page for it is a smaller failure
+    than pretending it never happened."""
+    _, user_id = admin_token
+    save_settings({"tmdb_api_key": "key"})
+    with session() as conn:
+        seed(conn, user_id)
+    respx.post(f"{OVERSEERR}/api/v1/request").mock(
+        return_value=httpx.Response(201, json={"media": {"status": 2}})
+    )
+    respx.get(f"{TMDB_API}/tv/333").mock(return_value=httpx.Response(500, json={}))
+
+    body = client.post("/api/request/333").json()
+    assert body["ok"] is True
+    assert body["series_id"] is None
+    with session() as conn:
+        assert media_state(conn, 333)["status"] == "pending"

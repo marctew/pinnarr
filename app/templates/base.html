@@ -33,6 +33,47 @@
      and anywhere cast turns up next all behave the same. -->
 <div class="ctx" id="ctx" hidden role="menu" aria-label="Cast member"></div>
 <script>
+  // Requesting appears on Discover and on a person's page, and the two had
+  // their own copies of this. One definition, because a second copy of a
+  // handler is a copy that drifts.
+  async function requestShow(id) {
+    const btn = document.getElementById('req-' + id);
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Asking…';
+    try {
+      const r = await fetch('/api/request/' + id, { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) {
+        btn.textContent = '✕ ' + (data.detail || r.status);
+        btn.disabled = false;
+        return;
+      }
+      // Replaced rather than re-enabled: asking twice is the one thing a
+      // request button should make impossible.
+      const note = document.createElement('p');
+      note.className = 'asked';
+      note.textContent = data.status;
+      btn.replaceWith(note);
+
+      // Asking created a row for it, so the title stops pointing at TMDB and
+      // starts pointing at the page Pinnarr now has.
+      if (data.url) {
+        const card = document.getElementById('want-' + id);
+        const title = card && card.querySelector('h4 a');
+        if (title) {
+          title.href = data.url;
+          title.removeAttribute('target');
+          title.removeAttribute('rel');
+        }
+      }
+    } catch (err) {
+      btn.textContent = '✕ failed';
+      btn.disabled = false;
+    }
+  }
+</script>
+<script>
   (function () {
     const menu = document.getElementById('ctx');
     if (!menu) return;
