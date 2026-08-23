@@ -60,11 +60,15 @@ async def sync_queue() -> str:
             conn.execute(
                 """
                 INSERT INTO download_queue (sonarr_episode_id, status, percent,
-                    time_left, message, first_seen_at, progress_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    time_left, message, series_title, episode_title, season,
+                    episode, first_seen_at, progress_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sonarr_episode_id) DO UPDATE SET
                     status = excluded.status, percent = excluded.percent,
                     time_left = excluded.time_left, message = excluded.message,
+                    series_title = excluded.series_title,
+                    episode_title = excluded.episode_title,
+                    season = excluded.season, episode = excluded.episode,
                     -- Kept if we have one, filled if we do not: a row that
                     -- predates the column would otherwise stay blank forever.
                     first_seen_at = COALESCE(
@@ -74,6 +78,7 @@ async def sync_queue() -> str:
                     updated_at = excluded.updated_at
                 """,
                 (key, item.status, item.percent, item.time_left, item.message,
+                 item.series_title, item.episode_title, item.season, item.episode,
                  (previous["first_seen_at"] if previous else None) or now,
                  now if moved else (previous["progress_at"] if previous else now),
                  now),

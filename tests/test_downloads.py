@@ -52,25 +52,67 @@ def test_an_active_download_is_listed(client, admin_token):
 
 
 def test_an_empty_queue_says_so(client):
-    assert "Nothing in the queue" in client.get("/downloads").text
+    assert "isn't downloading anything" in client.get("/downloads").text
 
 
-def test_someone_elses_pin_is_not_your_download(db, account):
+def test_everything_sonarr_is_doing_is_listed(db, account):
+    """The page answers "what is Sonarr doing" as well as "what is coming for
+    me". It used to answer only the second, and silently."""
     _, marc = account()
     _, bob = account("bob", "user")
     with session() as conn:
         seed(conn, marc)
-        assert downloads(conn, bob) == []
+        rows = downloads(conn, bob)
+    assert len(rows) == 1
+    assert rows[0]["is_pinned"] == 0
 
 
-def test_a_download_for_an_unpinned_show_is_not_listed(db, admin_token):
-    """Sonarr fetches for its whole library. Only your pins are your business."""
+def test_your_pins_come_first(db, admin_token):
+    """Sonarr fetches for its whole library, and most of it is not yours."""
     _, user_id = admin_token
     with session() as conn:
-        sid = make_series(conn, "Unpinned")
-        make_episode(conn, sid, sonarr_episode_id=999)
-        queued(conn, 999)
-        assert downloads(conn, user_id) == []
+        seed(conn, user_id, sonarr_episode_id=555)
+        other = make_series(conn, "Not Yours")
+        make_episode(conn, other, sonarr_episode_id=999)
+        queued(conn, 999, percent=95.0)
+        rows = downloads(conn, user_id)
+
+    assert [r["sonarr_episode_id"] for r in rows] == [555, 999]
+    assert [r["is_pinned"] for r in rows] == [1, 0]
+
+
+def test_a_download_pinnarr_has_no_episode_row_for_is_still_listed(db, admin_token):
+    """The calendar syncs a window. Sonarr will happily fetch season two of
+    something from 2016, and dropping it would be a second invisible filter
+    on a page that claims to show everything."""
+    _, user_id = admin_token
+    with session() as conn:
+        conn.execute(
+            "INSERT INTO download_queue (sonarr_episode_id, status, percent, "
+            "series_title, episode_title, season, episode, first_seen_at, "
+            "progress_at, updated_at) VALUES (777, 'downloading', 20, "
+            "'Some Old Show', 'The One With The Thing', 2, 4, ?, ?, ?)",
+            (iso(hours=-2), iso(hours=-1), utcnow()),
+        )
+        rows = downloads(conn, user_id)
+
+    assert len(rows) == 1
+    assert rows[0]["series_title"] == "Some Old Show"
+    assert rows[0]["episode_title"] == "The One With The Thing"
+    assert rows[0]["season"] == 2
+    assert rows[0]["series_id"] is None
+
+
+def test_a_stalled_pin_still_outranks_a_healthy_one(db, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        sid = make_series(conn, "Silo", pinned_by=user_id)
+        make_episode(conn, sid, season=1, episode=1, sonarr_episode_id=1)
+        make_episode(conn, sid, season=1, episode=2, sonarr_episode_id=2)
+        queued(conn, 1, percent=90.0, moved_hours_ago=0.1)
+        queued(conn, 2, percent=3.0, moved_hours_ago=STALLED_HOURS + 2)
+        rows = downloads(conn, user_id)
+    assert [r["sonarr_episode_id"] for r in rows] == [2, 1]
 
 
 # ── Stalling ──
@@ -238,3 +280,30 @@ async def test_a_row_from_before_the_columns_existed_gets_a_clock(client, sonarr
         ).fetchone()
     assert row["progress_at"] is not None
     assert row["first_seen_at"] is not None
+
+
+def test_the_api_reports_whether_each_item_is_yours(client, admin_token):
+    """The queue is now everyone's, so a caller needs to be told which rows
+    are the ones it was asking about."""
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id, sonarr_episode_id=555)
+        other = make_series(conn, "Not Yours")
+        make_episode(conn, other, sonarr_episode_id=999)
+        queued(conn, 999)
+
+    body = client.get("/api/downloads").json()
+    assert body["mine"] == 1
+    assert [i["pinned"] for i in body["items"]] == [True, False]
+
+
+def test_the_page_marks_which_are_yours(client, admin_token):
+    _, user_id = admin_token
+    with session() as conn:
+        seed(conn, user_id, sonarr_episode_id=555)
+        other = make_series(conn, "Not Yours")
+        make_episode(conn, other, sonarr_episode_id=999)
+        queued(conn, 999)
+    body = client.get("/downloads").text
+    assert "dl mine" in body
+    assert "1 of 2" in body

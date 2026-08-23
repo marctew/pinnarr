@@ -163,12 +163,16 @@ class SonarrClient:
         episode that aired and has not appeared looks identical whether a
         download is 80% done or nothing has been found at all.
         """
-        data = await self._get("/queue", pageSize=500, includeEpisode="true")
+        data = await self._get(
+            "/queue", pageSize=500, includeEpisode="true", includeSeries="true"
+        )
         records = (data or {}).get("records", data) or []
         items = []
         for item in records:
             if not isinstance(item, dict) or not item.get("episodeId"):
                 continue
+            episode = item.get("episode") or {}
+            series = item.get("series") or {}
             items.append(
                 QueueItem(
                     sonarr_episode_id=int(item["episodeId"]),
@@ -177,6 +181,10 @@ class SonarrClient:
                     percent=_percent(item),
                     time_left=item.get("timeleft"),
                     message=item.get("errorMessage") or None,
+                    series_title=series.get("title") or item.get("title") or None,
+                    episode_title=episode.get("title") or None,
+                    season=episode.get("seasonNumber"),
+                    episode=episode.get("episodeNumber"),
                 )
             )
         return items
@@ -291,6 +299,13 @@ class QueueItem:
     percent: float
     time_left: str | None
     message: str | None
+    # Carried from the queue payload so an item can be listed even when
+    # Pinnarr holds no episode row for it — the calendar only syncs a window,
+    # and Sonarr will happily fetch season two of something from 2016.
+    series_title: str | None = None
+    episode_title: str | None = None
+    season: int | None = None
+    episode: int | None = None
 
 
 def _percent(item: dict[str, Any]) -> float:

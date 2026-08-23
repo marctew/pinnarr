@@ -134,6 +134,7 @@ async def downloads_page(request: Request):
         "downloads.html",
         {
             "rows": rows,
+            "mine": sum(1 for r in rows if r["is_pinned"]),
             "stalled": sum(1 for r in rows if r["stalled"]),
             "stalled_hours": STALLED_HOURS,
             "pinned_total": pinned_total,

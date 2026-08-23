@@ -4,18 +4,30 @@
 
 {% block content %}
 <h1>Downloading</h1>
-<p class="lede">What Sonarr is fetching for your pins, refreshed every minute.
+<p class="lede">Everything Sonarr is fetching, refreshed every minute. Your
+  pins come first{% if mine %} — {{ mine }} of {{ rows|length }}{% endif %}.
   {% if stalled %}<strong>{{ stalled }} stalled.</strong>{% endif %}</p>
 
 {% if not rows %}
-  <p class="empty">Nothing in the queue. The <a href="/">calendar</a> shows
-    what's coming, and <a href="/gaps">gaps</a> what never turned up.</p>
+  <p class="empty">Sonarr isn't downloading anything. The
+    <a href="/">calendar</a> shows what's coming, and <a href="/gaps">gaps</a>
+    what never turned up.</p>
 {% else %}
   <ul class="queue">
     {% for r in rows %}
-      <li class="dl{{ ' stalled' if r.stalled }}">
-        <a class="who show" href="/series/{{ r['series_id'] }}">{{ r['series_title'] }}</a>
-        <span class="code">S{{ '%02d'|format(r['season']) }}E{{ '%02d'|format(r['episode']) }}</span>
+      <li class="dl{{ ' stalled' if r.stalled }}{{ ' mine' if r['is_pinned'] }}">
+        {% if r['series_id'] %}
+          <a class="who show" href="/series/{{ r['series_id'] }}">{{ r['series_title'] or '—' }}</a>
+        {% else %}
+          {# Sonarr is fetching something Pinnarr holds no row for — outside
+             the synced calendar window, usually an old season. #}
+          <span class="who">{{ r['series_title'] or 'Unknown series' }}</span>
+        {% endif %}
+        <span class="code">
+          {%- if r['season'] is not none and r['episode'] is not none -%}
+            S{{ '%02d'|format(r['season']) }}E{{ '%02d'|format(r['episode']) }}
+          {%- else %}—{% endif -%}
+        </span>
         <span class="name">{{ r['episode_title'] or '—' }}</span>
         <span class="bar" title="{{ '%.1f'|format(r['percent']) }}%">
           <span class="fill" style="width: {{ r['percent']|round(1) }}%"></span>

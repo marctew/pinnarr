@@ -152,6 +152,9 @@ async def downloading(request: Request):
         {
             "stalled_after_hours": STALLED_HOURS,
             "stalled": sum(1 for r in rows if r["stalled"]),
+            # The queue is everyone's now, so a caller has to be told which
+            # rows are the ones it was asking about.
+            "mine": sum(1 for r in rows if r["is_pinned"]),
             "items": [
                 {
                     "series_id": r["series_id"],
@@ -163,6 +166,7 @@ async def downloading(request: Request):
                     "time_left": r["time_left"],
                     "message": r["message"],
                     "stalled": bool(r["stalled"]),
+                    "pinned": bool(r["is_pinned"]),
                     "since": r["progress_at"],
                 }
                 for r in rows

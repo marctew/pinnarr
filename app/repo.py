@@ -1792,17 +1792,32 @@ def downloads(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     return list(
         conn.execute(
             """
-            SELECT q.*, e.season, e.episode, e.title AS episode_title,
-                   e.air_date_utc, s.id AS series_id, s.title AS series_title,
-                   (q.progress_at IS NOT NULL AND q.progress_at < ?
+            SELECT q.sonarr_episode_id, q.status, q.percent, q.time_left,
+                   q.message, q.progress_at, q.first_seen_at,
+                   -- Pinnarr's own row where it has one, Sonarr's label
+                   -- where it does not: the calendar syncs a window, and a
+                   -- download for something outside it has nothing local
+                   -- to name it.
+                   COALESCE(e.season, q.season) AS season,
+                   COALESCE(e.episode, q.episode) AS episode,
+                   COALESCE(e.title, q.episode_title) AS episode_title,
+                   COALESCE(s.title, q.series_title) AS series_title,
+                   e.air_date_utc, s.id AS series_id,
+                   COALESCE(s.sort_title, lower(q.series_title), 'zzz') AS ordering,
+                   (p.user_id IS NOT NULL) AS is_pinned,
+                   (q.progress_at IS NOT NULL AND q.progress_at < :cutoff
                     AND q.percent < 100) AS stalled
             FROM download_queue q
-            JOIN episodes e ON e.sonarr_episode_id = q.sonarr_episode_id
-            JOIN series s ON s.id = e.series_id
-            JOIN pins p ON p.series_id = s.id AND p.user_id = ?
-            ORDER BY stalled DESC, q.percent DESC, s.sort_title, e.season, e.episode
+            LEFT JOIN episodes e ON e.sonarr_episode_id = q.sonarr_episode_id
+            LEFT JOIN series s ON s.id = e.series_id
+            LEFT JOIN pins p ON p.series_id = s.id AND p.user_id = :uid
+            -- Yours first, then whatever needs attention within that. The
+            -- page answers "what is Sonarr doing" as well as "what is coming
+            -- for me", and the second question is the one you opened it for.
+            ORDER BY is_pinned DESC, stalled DESC, q.percent DESC,
+                     ordering, season, episode
             """,
-            (cutoff, user_id),
+            {"cutoff": cutoff, "uid": user_id},
         )
     )
 

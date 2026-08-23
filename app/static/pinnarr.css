@@ -764,3 +764,8 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
    the second is something to wait for. */
 .asked-state.here { border-color: var(--ok); color: var(--ok); font-weight: 600; }
 .card.want.here { border-color: var(--ok); }
+
+/* Yours, in a queue that now shows everyone's. Quiet — the ordering already
+   does the work, this only confirms it at a glance. */
+.dl.mine .who { border-left: 3px solid var(--accent); padding-left: .45rem; }
+.dl:not(.mine) .who { color: var(--muted); }
