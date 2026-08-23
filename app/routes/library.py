@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from app.db import session
-from app.media import poster
+from app.media import poster, tmdb_poster
 from app.repo import (
     PAGE_SIZE,
     PIN_STATES,
@@ -115,6 +115,26 @@ async def library(request: Request):
             "sorts": list(SORTS),
             "querystring": str(request.query_params),
         },
+    )
+
+
+# Registered before /poster/{series_id}: FastAPI matches in definition
+# order, and a path parameter typed int would take "tmdb" first and
+# reject it as a bad request rather than falling through.
+@router.get("/poster/tmdb")
+async def tmdb_poster_image(path: str = "", kind: str = "poster"):
+    """Artwork for a show with no series row — a Discover suggestion you do
+    not own, or a credit on somebody's filmography.
+
+    The path is validated to a TMDB image name before a URL is built from
+    it, so this can only ever fetch from image.tmdb.org.
+    """
+    result = await tmdb_poster(0, path, kind)
+    if result is None:
+        return Response(PLACEHOLDER_SVG, media_type="image/svg+xml")
+    content, content_type = result
+    return Response(
+        content, media_type=content_type, headers={"Cache-Control": "max-age=604800"}
     )
 
 

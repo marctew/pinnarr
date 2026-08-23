@@ -31,7 +31,7 @@
     <div class="thumb">
       <span class="poster">
         {% if w['poster_path'] %}
-          <img src="https://image.tmdb.org/t/p/w300{{ w['poster_path'] }}"
+          <img src="/poster/tmdb?path={{ w['poster_path'] | urlencode }}"
                alt="{{ w['title'] }}" loading="lazy" width="200" height="300">
         {% else %}
           <span class="noposter">{{ w['title'][:1] }}</span>

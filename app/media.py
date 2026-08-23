@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from pathlib import Path
 
 import httpx
@@ -61,6 +62,51 @@ async def _from_remote(url: str) -> tuple[bytes, str]:
     if len(resp.content) > MAX_BYTES:
         raise UpstreamError("poster", f"{url} returned {len(resp.content)} bytes")
     return resp.content, resp.headers.get("Content-Type", "image/jpeg")
+
+
+#: TMDB image paths look like /qJ3q3.jpg and nothing else. Anchored so the
+#: only URL this can ever build is one on image.tmdb.org — a path that could
+#: carry a slash or a host would turn Pinnarr into an open image proxy.
+TMDB_PATH = re.compile(r"^/[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|webp)$")
+
+#: An allowlist, not a passthrough: the size lands in a URL, and "w342 or
+#: w185" is the whole range of things a caller legitimately needs. Poster
+#: cards get the first, headshots the second — fetching a 342px portrait for
+#: a 46px slot is a download nobody sees.
+TMDB_SIZES = {"poster": "w342", "face": "w185"}
+TMDB_IMAGE = "https://image.tmdb.org/t/p"
+
+
+async def tmdb_poster(tmdb_id: int, poster_path: str,
+                      kind: str = "poster") -> tuple[bytes, str] | None:
+    """Artwork for a show Pinnarr has no series row for.
+
+    Proxied and cached like every other poster rather than pointed at from
+    the page. Same reason the rest of the app has no CDN in it: the browser
+    should not need to reach the internet to draw a page, and a library's
+    worth of interests should not be handed to TMDB by every device that
+    opens Discover.
+    """
+    if not poster_path or not TMDB_PATH.match(poster_path):
+        return None
+
+    size = TMDB_SIZES.get(kind, TMDB_SIZES["poster"])
+    url = f"{TMDB_IMAGE}/{size}{poster_path}"
+    # Prefixed so housekeeping's orphan check — which reads a leading series
+    # id — sees a name it cannot parse and leaves these alone. They still
+    # age out on the usual staleness rule.
+    cached = cache_dir() / f"tmdb-{size}-{_key(0, poster_path).split('-', 1)[1]}"
+    if cached.exists():
+        return cached.read_bytes(), "image/jpeg"
+
+    try:
+        content, content_type = await _from_remote(url)
+    except Exception as exc:  # noqa: BLE001 — a missing poster is not an outage
+        log.warning("TMDB poster fetch failed for %s: %s", tmdb_id, exc)
+        return None
+
+    _store(cached, content)
+    return content, content_type
 
 
 async def poster(

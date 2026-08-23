@@ -115,7 +115,7 @@
       <li class="face">
         <a class="mug" href="/person/{{ item.person['tmdb_person_id'] }}" tabindex="-1" aria-hidden="true">
           {% if item.person['profile_path'] %}
-            <img src="https://image.tmdb.org/t/p/w92{{ item.person['profile_path'] }}"
+            <img src="/poster/tmdb?kind=face&path={{ item.person['profile_path'] | urlencode }}"
                  alt="" loading="lazy" width="46" height="69">
           {% else %}
             <span class="noface">{{ item.person['name'][:1] }}</span>
@@ -151,7 +151,7 @@
         <li class="face">
           <a class="mug" href="/person/{{ member['tmdb_person_id'] }}" tabindex="-1" aria-hidden="true">
             {% if member['profile_path'] %}
-              <img src="https://image.tmdb.org/t/p/w92{{ member['profile_path'] }}"
+              <img src="/poster/tmdb?kind=face&path={{ member['profile_path'] | urlencode }}"
                    alt="" loading="lazy" width="46" height="69">
             {% else %}
               <span class="noface">{{ member['name'][:1] }}</span>

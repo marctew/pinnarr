@@ -136,3 +136,95 @@ def test_no_source_at_all_still_serves_a_placeholder(client):
     r = client.get(f"/poster/{sid}")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("image/svg")
+
+
+# ── Artwork for things with no series row ──
+
+
+def test_a_tmdb_path_is_proxied_and_cached(client, tmp_path, monkeypatch):
+    """Proxied like every other poster rather than pointed at from the page:
+    the browser should not need the internet to draw a page, and a library's
+    worth of interests should not go to TMDB from every device."""
+    import httpx
+    import respx
+
+    monkeypatch.setattr(media, "cache_dir", lambda: tmp_path)
+    with respx.mock:
+        route = respx.get("https://image.tmdb.org/t/p/w342/abc.jpg").mock(
+            return_value=httpx.Response(200, content=b"JPEGBYTES",
+                                        headers={"Content-Type": "image/jpeg"})
+        )
+        first = client.get("/poster/tmdb?path=/abc.jpg")
+        second = client.get("/poster/tmdb?path=/abc.jpg")
+
+    assert first.content == b"JPEGBYTES"
+    assert second.content == b"JPEGBYTES"
+    assert route.call_count == 1
+
+
+def test_a_headshot_asks_for_a_smaller_file(client, tmp_path, monkeypatch):
+    """A 342px portrait for a 46px slot is a download nobody sees."""
+    import httpx
+    import respx
+
+    monkeypatch.setattr(media, "cache_dir", lambda: tmp_path)
+    with respx.mock:
+        route = respx.get("https://image.tmdb.org/t/p/w185/face.jpg").mock(
+            return_value=httpx.Response(200, content=b"X",
+                                        headers={"Content-Type": "image/jpeg"})
+        )
+        client.get("/poster/tmdb?kind=face&path=/face.jpg")
+    assert route.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "//evil.example.com/x.jpg",   # a host, not a path
+        "/../../etc/passwd",          # traversal
+        "/abc.jpg?x=1",               # a query smuggled in
+        "/abc.svg",                   # not an image size TMDB serves
+        "https://evil.example.com/x.jpg",
+        "",
+    ],
+)
+def test_only_a_real_tmdb_image_path_is_fetched(client, path, tmp_path, monkeypatch):
+    """The path lands in a URL, so anything that could carry a host or a
+    slash would make Pinnarr an open image proxy."""
+    import respx
+
+    monkeypatch.setattr(media, "cache_dir", lambda: tmp_path)
+    with respx.mock(assert_all_called=False) as mock:
+        anything = mock.route(host__regex=r".*").mock(side_effect=AssertionError)
+        r = client.get("/poster/tmdb", params={"path": path})
+    assert anything.call_count == 0
+    assert r.headers["content-type"] == "image/svg+xml"
+
+
+def test_an_unknown_size_falls_back_rather_than_reaching_the_url(client, tmp_path,
+                                                                monkeypatch):
+    import httpx
+    import respx
+
+    monkeypatch.setattr(media, "cache_dir", lambda: tmp_path)
+    with respx.mock:
+        route = respx.get("https://image.tmdb.org/t/p/w342/abc.jpg").mock(
+            return_value=httpx.Response(200, content=b"X",
+                                        headers={"Content-Type": "image/jpeg"})
+        )
+        client.get("/poster/tmdb?kind=w9999&path=/abc.jpg")
+    assert route.call_count == 1
+
+
+def test_a_tmdb_poster_is_not_pruned_as_an_orphan(db, tmp_path, monkeypatch):
+    """Housekeeping identifies orphans by a leading series id. These have no
+    series, and must not be read as belonging to one that no longer exists."""
+    from app.jobs import housekeeping
+
+    monkeypatch.setattr(housekeeping, "cache_dir", lambda: tmp_path)
+    (tmp_path / "tmdb-w342-abc123").write_bytes(b"X")
+    (tmp_path / "999-deadbeef").write_bytes(b"X")
+
+    housekeeping.prune_posters()
+    assert (tmp_path / "tmdb-w342-abc123").exists()
+    assert not (tmp_path / "999-deadbeef").exists()
